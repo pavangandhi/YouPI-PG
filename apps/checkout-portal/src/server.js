@@ -58,7 +58,11 @@ export function isProductionLike(env = process.env) {
  * effect because it cannot express a list and would block the allowlisted storefronts.
  */
 export function checkoutFrameHeaders(env = process.env) {
-  const configured = frameAncestorOrigins(env.CHECKOUT_FRAME_ANCESTORS);
+  // Pass the value explicitly (never undefined) so frameAncestorOrigins never falls
+  // back to its own default parameter, which reads the ambient process.env. Without
+  // this, an explicitly supplied env object still inherited the host's allowlist and
+  // the caller could not observe the "nothing configured" behaviour it asked for.
+  const configured = frameAncestorOrigins(env.CHECKOUT_FRAME_ANCESTORS ?? '');
   const frameAncestors = configured.length
     ? `'self' ${configured.join(' ')}`
     : (isProductionLike(env) ? "'self'" : '*');
