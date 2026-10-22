@@ -5,7 +5,8 @@
         <div class="ypg-pc-brand-header">
           <div class="ypg-pc-avatar" id="pcMerchantAvatarBox">
             <span id="pcMerchantAvatarLetter">M</span>
-            <img id="pcMerchantAvatarImg" alt="Logo" style="display:none;" />
+            <img id="pcMerchantAvatarImg" alt="Logo" style="display:none;"
+                 onerror="this.style.display='none';var l=document.getElementById('pcMerchantAvatarLetter');if(l)l.style.display='inline';" />
           </div>
           <div class="ypg-pc-brand-info">
             <div class="ypg-pc-merchant-name" id="pcMerchantName">{{MERCHANT_NAME}}</div>

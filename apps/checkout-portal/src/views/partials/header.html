@@ -43,7 +43,8 @@
             <!-- Teal Merchant Avatar with White Initial -->
             <div class="ypg-merchant-avatar" id="merchantAvatarBox">
               <span id="merchantAvatarLetter">M</span>
-              <img id="merchantAvatarImg" alt="Logo" style="display:none;" />
+              <img id="merchantAvatarImg" alt="Logo" style="display:none;"
+                   onerror="this.style.display='none';var l=document.getElementById('merchantAvatarLetter');if(l)l.style.display='inline';" />
             </div>
 
             <!-- Merchant Name & YouPI PG Verified Business Badge -->

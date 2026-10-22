@@ -1153,6 +1153,38 @@ export function registerCheckoutRoutes(server, ctx) {
       }
     } else if (!isCounter && !isCod && session.expiresAt) {
       timeRemainingSeconds = Math.max(0, Math.ceil((session.expiresAt.getTime() - Date.now()) / 1000));
+    } else if (!isCounter && !isCod && !session.expiresAt) {
+      // Initial UPI selection (method is already UPI and no timer is running yet).
+      //
+      // The three branches above cover: switching TO counter/COD, switching BACK
+      // to UPI from counter/COD, and UPI-to-UPI with a live timer. None of them
+      // covers the very first selection, which is the path a customer takes
+      // when the checkout opens with UPI already selected — there was no timer
+      // to switch from, so the session stayed INITIATED forever and the UPI QR
+      // was never generated. Acquire the concurrency slot here so the 5-minute
+      // window starts and the QR becomes available.
+      const receivingAccount = ctx.accountRepo.findActiveForMerchant(session.merchantId);
+      if (receivingAccount) {
+        const queueResult = ctx.queueEngine.enqueueOrActivate(session.id, receivingAccount.id);
+        updates += `, receiving_account_id = ?, status = ?, queue_position = ?, expires_at = ?`;
+        updateParams.push(
+          receivingAccount.id,
+          queueResult.status,
+          queueResult.queuePosition,
+          queueResult.expiresAt ? queueResult.expiresAt.toISOString() : null
+        );
+        session.receivingAccountId = receivingAccount.id;
+        session.status = queueResult.status;
+        session.queuePosition = queueResult.queuePosition;
+        session.expiresAt = queueResult.expiresAt;
+
+        if (queueResult.expiresAt && ctx.timingEngine && queueResult.status === PaymentStatus.ACTIVE) {
+          ctx.timingEngine.startActiveTimer(session.id, queueResult.expiresAt);
+        }
+        if (queueResult.expiresAt) {
+          timeRemainingSeconds = Math.max(0, Math.ceil((queueResult.expiresAt.getTime() - Date.now()) / 1000));
+        }
+      }
     }
 
     updateParams.push(session.id);
