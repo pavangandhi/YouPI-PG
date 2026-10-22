@@ -17,13 +17,19 @@ const BASE_SECURITY_HEADERS = Object.freeze({
 });
 
 /** Routes reachable without a credential (liveness probe and the dashboard shell). */
-const PUBLIC_PATHS = new Set(['/health', '/', '/dashboard']);
+const PUBLIC_PATHS = new Set(['/health', '/', '/dashboard', '/fonts/dm-sans.woff2', '/fonts/sora.woff2']);
 
-/** True when the caller presented the admin bearer token in constant time. */
-function hasAdminToken(req) {
+/** True when the caller presented the admin bearer token in constant time (or ?token= on GET SSE). */
+function hasAdminToken(req, url = null, pathname = '') {
   const match = /^Bearer\s+(.+)$/i.exec(req.headers?.['authorization'] || '');
-  if (!match) return false;
-  return safeEqual(match[1].trim(), getAdminToken());
+  if (match) {
+    return safeEqual(match[1].trim(), getAdminToken());
+  }
+  // NOTE: the stream token is deliberately NOT accepted from a query parameter. A
+  // credential in the URL ends up in access logs, browser history and Referer headers.
+  // The dashboards now open the stream with fetch() so the token travels in the
+  // Authorization header only.
+  return false;
 }
 
 export class ControlCenterServer {
@@ -84,7 +90,7 @@ export class ControlCenterServer {
       // Every remaining route controls processes, streams service logs or exposes internal
       // state. Without a token these are a remote denial-of-service and a log-exfiltration
       // primitive, so the admin bearer is required.
-      if (!PUBLIC_PATHS.has(pathname) && !hasAdminToken(req)) {
+      if (!PUBLIC_PATHS.has(pathname) && !hasAdminToken(req, url, pathname)) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
         return;
@@ -190,6 +196,21 @@ export class ControlCenterServer {
           this.sseClients.delete(res);
         });
         return;
+      }
+
+      // Self-hosted UI fonts (CSP blocks third-party font CDNs)
+      const fontMatch = /^\/fonts\/(dm-sans|sora)\.woff2$/.exec(pathname);
+      if (fontMatch && method === 'GET') {
+        const fontPath = path.resolve(__dirname, '../public/fonts', `${fontMatch[1]}.woff2`);
+        if (fs.existsSync(fontPath)) {
+          res.writeHead(200, {
+            'Content-Type': 'font/woff2',
+            'Cache-Control': 'public, max-age=31536000, immutable',
+            'X-Content-Type-Options': 'nosniff'
+          });
+          fs.createReadStream(fontPath).pipe(res);
+          return;
+        }
       }
 
       // Web Dashboard View: GET /

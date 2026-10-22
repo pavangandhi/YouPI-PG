@@ -116,6 +116,16 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
   test('POST /api/webhook processes signed SUCCESS event and credits wallet coins', async () => {
     const initialCoins = storeInstance.server.walletCoins;
 
+    storeInstance.server.orders.set('COIN-ORD-555', {
+      orderId: 'COIN-ORD-555',
+      paymentId: 'pay_coin_test_123',
+      amountPaise: 44900,
+      coins: 550,
+      packName: 'Gamer Pack',
+      createdAt: Date.now()
+    });
+    storeInstance.server.orderPayments.set('COIN-ORD-555', 'pay_coin_test_123');
+
     const payloadObj = {
       event: 'SUCCESS',
       paymentId: 'pay_coin_test_123',
@@ -149,6 +159,74 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.equal(balanceRes.body.coins, initialCoins + 550);
     assert.ok(balanceRes.body.history.length >= 1);
     assert.equal(balanceRes.body.history[0].orderId, 'COIN-ORD-555');
+  });
+
+  test('POST /api/webhook rejects unknown orders and mismatched amounts, and ignores inflated metadata.coins', async () => {
+    const before = storeInstance.server.walletCoins;
+
+    // 1. Unknown orderId rejected with 404
+    const unknownPayload = JSON.stringify({
+      event: 'SUCCESS',
+      paymentId: 'pay_unknown_999',
+      orderId: 'COIN-ORD-UNKNOWN-999',
+      amount: '1.00',
+      amountPaise: 100,
+      currency: 'INR',
+      method: 'UPI',
+      metadata: { coins: 99999 }
+    });
+    const unknownRes = await request('/api/webhook', {
+      method: 'POST',
+      headers: gatewayHeaders(unknownPayload),
+      body: unknownPayload
+    });
+    assert.equal(unknownRes.status, 404);
+    assert.equal(storeInstance.server.walletCoins, before);
+
+    // 2. Mismatched amountPaise rejected with 400
+    const checkout = await request('/api/checkout', {
+      method: 'POST',
+      body: { packName: 'Ten Rupee Pack', price: 10.00 }
+    });
+    assert.equal(checkout.status, 200);
+    const { orderId, paymentId } = checkout.body;
+
+    const mismatchPayload = JSON.stringify({
+      event: 'SUCCESS',
+      paymentId,
+      orderId,
+      amount: '1.00',
+      amountPaise: 100,
+      currency: 'INR',
+      method: 'UPI',
+      metadata: { coins: 99999 }
+    });
+    const mismatchRes = await request('/api/webhook', {
+      method: 'POST',
+      headers: gatewayHeaders(mismatchPayload),
+      body: mismatchPayload
+    });
+    assert.equal(mismatchRes.status, 400);
+    assert.equal(storeInstance.server.walletCoins, before);
+
+    // 3. Matching amountPaise credits local order.coins (10), ignoring inflated metadata.coins (99999)
+    const validPayload = JSON.stringify({
+      event: 'SUCCESS',
+      paymentId,
+      orderId,
+      amount: '10.00',
+      amountPaise: 1000,
+      currency: 'INR',
+      method: 'UPI',
+      metadata: { coins: 99999 }
+    });
+    const validRes = await request('/api/webhook', {
+      method: 'POST',
+      headers: gatewayHeaders(validPayload),
+      body: validPayload
+    });
+    assert.equal(validRes.status, 200);
+    assert.equal(storeInstance.server.walletCoins, before + 10);
   });
 
   test('POST /api/webhook rejects fraudulent signature', async () => {

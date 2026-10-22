@@ -8,6 +8,7 @@ import {
   AttributionEngine,
   BankSmsParser
 } from '../index.js';
+import { extractIntelligentAmount } from '../bank-sms-parser.js';
 import {
   PaymentStatus,
   PublicPaymentOutcome,
@@ -334,6 +335,69 @@ describe('Bank SMS Parser UTR & Amount Extraction', () => {
       assert.equal(parsed.amount, '1200.00');
       assert.equal(parsed.bankReferenceNumber, '987654321012');
     });
+
+    test('ignores available balance amount appearing before credit amount', () => {
+      const sms = {
+        text: 'Avl Bal Rs 15,000.00. Rs 500.00 credited to A/c XX1234 for UPI txn Ref 123456789012.'
+      };
+      const parsed = BankSmsParser.parse(sms);
+      assert.ok(parsed);
+      assert.equal(parsed.amount, '500.00');
+      assert.equal(parsed.amountPaise, 50000n);
+      assert.equal(parsed.bankReferenceNumber, '123456789012');
+    });
+
+    test('rejects debit notification even if credited disclaimer appears later', () => {
+      const sms = {
+        text: 'Dear Customer, A/c *1234 is debited for Rs 750 on 19-Oct-26. If not done by you, contact bank. Amount will be credited back in 48 hours.'
+      };
+      const parsed = BankSmsParser.parse(sms);
+      assert.equal(parsed, null);
+    });
+
+    test('amount extraction is not vulnerable to quadratic backtracking (ReDoS)', () => {
+      // The credit patterns chain several whitespace-matching quantifiers. A body such as
+      // "credited" followed by a long whitespace run used to take seconds to scan and blocked
+      // the payment event loop, so the text is whitespace-collapsed before matching.
+      const hostile = 'credited' + ' '.repeat(20000);
+      const started = Date.now();
+      extractIntelligentAmount(hostile);
+      const elapsed = Date.now() - started;
+      assert.ok(elapsed < 500, `amount extraction took ${elapsed}ms on a whitespace flood`);
+    });
+
+    test('rejects bare payment or transfer debit message without credit indicator', () => {
+      const sms = {
+        text: 'Payment of Rs 350.00 sent to merchant@upi on 19-Oct. UPI Ref 998877665544.'
+      };
+      const parsed = BankSmsParser.parse(sms);
+      assert.equal(parsed, null);
+    });
+
+    test('Issue #20: correctly parses FamPay / FamApp credit notification with wallet, transaction ID, and UPI ID', () => {
+      const sms = {
+        text: 'Money received! Rs. 350.00 credited to FamPay Wallet via UPI from Gaurav (UPI ID: gaurav@fam). Transaction ID: 418293847562'
+      };
+      const parsed = BankSmsParser.parse(sms);
+      assert.ok(parsed);
+      assert.equal(parsed.amount, '350.00');
+      assert.equal(parsed.amountPaise, 35000n);
+      assert.equal(parsed.bankReferenceNumber, '418293847562');
+      assert.equal(parsed.senderVpa, 'gaurav@fam');
+    });
+
+    test('Issue #20: normalizes FamPay observation with added to account format', () => {
+      const obs = ObservationNormalizer.normalize({
+        source: ObserverSource.GOOGLE_MESSAGES,
+        receivingAccountId: 'acc_1',
+        rawPayload: {
+          text: 'Payment received! Rs. 500.00 added to your account via UPI from user@idfcbank. UPI Ref: 328910293841'
+        }
+      });
+      assert.equal(obs.amountPaise, 50000n);
+      assert.equal(obs.bankReferenceNumber, '328910293841');
+      assert.equal(obs.senderVpa, 'user@idfcbank');
+    });
   });
 
 describe('Issue #4: Terminal State Invariants and Re-activation Guards', () => {
@@ -616,3 +680,4 @@ describe('Issue #4: Terminal State Invariants and Re-activation Guards', () => {
     });
   });
 });
+

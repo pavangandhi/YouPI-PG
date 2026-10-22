@@ -239,12 +239,20 @@ describe('Checkout Portal XSS / Redirect Hardening', () => {
     });
 
     test('no postMessage is broadcast to a wildcard origin', () => {
-      assert.equal(view.includes("postMessage("), view.includes('postToMerchant(')
-        ? true
-        : true);
       assert.equal(/postMessage\([^)]*['"]\*['"]\)/.test(view), false);
       assert.ok(view.includes('function postToMerchant(message)'));
-      assert.ok(view.includes('resolveMerchantOrigin() || \'*\''));
+      // Payment data must never be broadcast: when the merchant origin cannot be
+      // resolved the message is dropped instead of posted to '*'.
+      assert.ok(view.includes('if (!target) return;'));
+      assert.ok(view.includes('window.parent.postMessage(message, target);'));
+    });
+
+    test('the SDK declares its own origin for referrer-less embeds', () => {
+      const sdk = fs.readFileSync(
+        path.join(__dirname, '../../../../packages/merchant-sdk/src/youpi.js'),
+        'utf8'
+      );
+      assert.ok(sdk.includes('youpiParentOrigin='));
     });
 
     test('the parent message listener validates the sender origin', () => {
@@ -361,12 +369,24 @@ describe('Checkout Portal XSS / Redirect Hardening', () => {
 
     test('no unescaped interpolation is left in an inline event handler', () => {
       const handlers = view.match(/onclick="[^"]*\$\{[^"]*"/g) || [];
+      assert.ok(handlers.length > 0, 'expected to find inline handlers to check');
       for (const handler of handlers) {
+        // jsArg builds a single string literal that survives HTML entity decoding.
+        // escapeHtml inside a handler argument is NOT safe: the browser decodes
+        // entities before the handler runs, so a quote still breaks out.
         assert.ok(
-          /\$\{(jsArg|escapeHtml|escapeHtmlValue|escapeAttribute)\(/.test(handler),
-          `unescaped interpolation in: ${handler}`
+          /\$\{jsArg\(/.test(handler),
+          `handler argument is not built with jsArg: ${handler}`
         );
       }
+    });
+
+    test('every previously reported escapeHtml-in-handler sink now uses jsArg', () => {
+      assert.ok(view.includes('promptUnbanCustomer(${jsArg(u.id)}, ${jsArg(u.name || \'\')}, ${jsArg(u.phone || u.mobileNumber || \'\')})'));
+      assert.ok(view.includes("copyText(${jsArg(r.hostname || '')}, 'Hostname copied to clipboard!')"));
+      assert.ok(view.includes("copyText(${jsArg(r.serviceUrl)}, 'Service URL copied to clipboard!')"));
+      assert.equal(view.includes("onclick=\"promptUnbanCustomer('${u.id}'"), false);
+      assert.equal(view.includes("copyText('${escapeHtml("), false);
     });
 
     test('the Gmail OAuth popup listener checks source and origin', () => {

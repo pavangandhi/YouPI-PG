@@ -20,6 +20,8 @@
     "test": "node scripts/test-all.js",
     "test:all": "node scripts/test-all.js",
     "test:acceptance": "node --test scripts/production-infrastructure.test.js",
+    "build:android:apk": "node scripts/build-android-apk.js",
+    "sync:android-allowlist": "node scripts/sync-android-allowlist.js",
     "typecheck": "tsc -b --noEmit"
   },
   "devDependencies": {

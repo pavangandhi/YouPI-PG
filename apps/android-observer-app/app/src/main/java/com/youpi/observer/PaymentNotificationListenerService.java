@@ -6,12 +6,57 @@ import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class PaymentNotificationListenerService extends NotificationListenerService {
     private static final String TAG = "YoupiNotifListener";
     private ApiClient apiClient;
+
+    // Generated from packages/common/src/upi-providers.js - Single Source of Truth
+    private static final Set<String> ALLOWED_BANKING_PACKAGES = new HashSet<>(Arrays.asList(
+        "com.axis.mobile",
+        "com.bankofbaroda.mconnect",
+        "com.bankofbaroda.upi",
+        "com.canarabank.mobility",
+        "com.csam.icici.bank.imobile",
+        "com.dreamplug.androidapp",
+        "com.epifi.paisa",
+        "com.fampay.in",
+        "com.fedmobile",
+        "com.fisglobal.bandhanupi.app",
+        "com.freecharge.android",
+        "com.google.android.apps.messaging",
+        "com.google.android.apps.nbu.paisa.user",
+        "com.hdfcbank.payzapp",
+        "com.icicibank.pockets",
+        "com.idfcfirstbank.optimus",
+        "com.infrasoft.uboi",
+        "com.infrasofttech.indianbank",
+        "com.mgs.induspsp",
+        "com.mobikwik_new",
+        "com.msf.kbank.mobile",
+        "com.myairtelapp",
+        "com.nextbillion.groww",
+        "com.phonepe.app",
+        "com.samsung.android.messaging",
+        "com.samsung.android.spay",
+        "com.sbi.lotusintouch",
+        "com.sbi.upi",
+        "com.snapwork.hdfc",
+        "com.tatadigital.tcp",
+        "com.truecaller",
+        "com.upi.axispay",
+        "in.amazon.mshop.android.shopping",
+        "in.gokiwi.kiwitpap",
+        "in.org.npci.upiapp",
+        "indwin.c3.shareapp",
+        "money.jupiter",
+        "net.one97.paytm"
+    ));
 
     private static final Pattern AMOUNT_PATTERN = Pattern.compile("(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", Pattern.CASE_INSENSITIVE);
     private static final Pattern UTR_PATTERN = Pattern.compile("(?:UPI\\s*(?:ref|reference|txn|id)?|Ref(?:erence)?\\s*(?:no|number)?|UTR)\\s*[:#-]?\\s*([0-9]{12})", Pattern.CASE_INSENSITIVE);
@@ -26,6 +71,12 @@ public class PaymentNotificationListenerService extends NotificationListenerServ
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
         if (sbn == null || !apiClient.isPaired()) return;
+
+        // Security Invariant (Issue #24): Strictly discard notifications originating from unverified apps
+        final String pkgName = sbn.getPackageName();
+        if (pkgName == null || !ALLOWED_BANKING_PACKAGES.contains(pkgName)) {
+            return;
+        }
 
         Notification notif = sbn.getNotification();
         if (notif == null) return;
@@ -77,13 +128,14 @@ public class PaymentNotificationListenerService extends NotificationListenerServ
         final String finalVpa = vpa;
         final String finalTitle = title;
         final String finalTex = text;
+        final String finalPkg = pkgName;
 
-        Log.i(TAG, "Captured UPI credit notification: ₹" + amount + " UTR: " + bankRef);
+        Log.i(TAG, "Captured UPI credit notification: ₹" + amount + " UTR: " + bankRef + " from pkg: " + pkgName);
 
         new Thread(new Runnable() {
             @Override
             public void run() {
-                apiClient.sendObservation(amountPaise, finalAmount, finalBankRef, finalVpa, finalTitle, finalTex);
+                apiClient.sendObservation(amountPaise, finalAmount, finalBankRef, finalVpa, finalTitle, finalTex, finalPkg);
             }
         }).start();
     }

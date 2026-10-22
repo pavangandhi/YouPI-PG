@@ -98,6 +98,18 @@ The engine supports root domains and alert subdomains (e.g. `alerts.hdfcbank.net
 5. Tap **Pair with Merchant Gateway**. The device will receive its permanent `deviceId` and `signingKey` stored in `EncryptedSharedPreferences`.
 6. Grant Notification Listener Access in Android System Settings.
 
+### Binary Verification & Checksum
+Operators can verify the cryptographic integrity and authenticity of `youpi-sms-gateway.apk` before sideloading onto merchant Android devices:
+
+- **Target Binary**: `apps/android-observer-app/youpi-sms-gateway.apk` (also mirrored at `/youpi-sms-gateway.apk` on Admin and Payment API)
+- **SHA-256 Checksum**: `959218223e75da4784744c16afaf7bc121cff377dff04f041875237042f51601`
+- **Verification Command**:
+  ```bash
+  shasum -a 256 apps/android-observer-app/youpi-sms-gateway.apk
+  # Or check against the companion checksum file:
+  shasum -a 256 -c apps/android-observer-app/youpi-sms-gateway.apk.sha256
+  ```
+
 ---
 
 ## Method 3: Google Messages / SMS Observer

@@ -363,3 +363,38 @@ export function findUpiProviderById(id?: string): UpiProvider | undefined {
   const clean = id.trim().toLowerCase();
   return UPI_PROVIDERS.find(p => p.id.toLowerCase() === clean);
 }
+
+/**
+ * Official companion SMS and banking notification application packages
+ * permitted to deliver real-time credit payment observations to YOUPI Gateway.
+ */
+export const BANKING_AND_MESSAGING_PACKAGES: readonly string[] = Object.freeze([
+  'com.google.android.apps.messaging',
+  'com.samsung.android.messaging',
+  'com.fampay.in',
+  'com.sbi.lotusintouch',
+  'com.hdfcbank.payzapp',
+  'com.bankofbaroda.mconnect',
+  'com.infrasofttech.indianbank',
+  'com.fedmobile'
+]);
+
+/**
+ * Canonical unified allowlist of all verified UPI payment and banking observation packages.
+ */
+export const ALLOWED_NOTIFICATION_PACKAGES: readonly string[] = Object.freeze(
+  Array.from(new Set([
+    ...UPI_PROVIDERS.map(p => p.packageName.toLowerCase()),
+    ...BANKING_AND_MESSAGING_PACKAGES.map(p => p.toLowerCase())
+  ])).sort()
+);
+
+/**
+ * Verifies whether a given Android package identifier is an authorized banking/UPI provider.
+ */
+export function isAllowedNotificationPackage(packageName?: string): boolean {
+  if (!packageName || typeof packageName !== 'string') return false;
+  const clean = packageName.trim().toLowerCase();
+  return ALLOWED_NOTIFICATION_PACKAGES.includes(clean);
+}
+

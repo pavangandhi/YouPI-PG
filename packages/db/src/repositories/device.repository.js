@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { blindIndex } from '@youpi/common';
+import { blindIndex, blindIndexMatches, safeEqual, issueDeviceCredential, verifyDeviceCredential } from '@youpi/common';
 
 /** Namespace so device-token digests never collide with other blind indexes. */
 const INDEX_NS = 'devtok';
@@ -31,7 +31,7 @@ export class DeviceRepository {
    */
   create(data) {
     const id = data.id || `dev_${crypto.randomUUID()}`;
-    const deviceToken = data.deviceToken || `devtok_${crypto.randomBytes(32).toString('hex')}`;
+    const deviceToken = data.deviceToken || issueDeviceCredential(id);
     const now = new Date().toISOString();
     const status = data.status || 'ACTIVE';
 
@@ -76,6 +76,62 @@ export class DeviceRepository {
     if (!id) return null;
     const row = this.db.queryOne('SELECT * FROM devices WHERE id = ?', [id]);
     return row ? this.mapRow(row) : null;
+  }
+
+  /**
+   * Verifies a presented device token for a specific device ID in constant time.
+   * @param {string} deviceId
+   * @param {string} presentedToken
+   * @returns {boolean}
+   */
+  verifyToken(deviceId, presentedToken) {
+    if (!deviceId || typeof deviceId !== 'string' || !presentedToken || typeof presentedToken !== 'string') {
+      return false;
+    }
+    const row = this.db.queryOne(
+      'SELECT id, device_token, status FROM devices WHERE id = ?',
+      [deviceId]
+    );
+    if (!row || row.status !== 'ACTIVE' || !row.device_token) {
+      return false;
+    }
+
+    // If token uses the server-signed envelope (`devtok_<deviceId>...`), verify its HMAC signature too.
+    if (presentedToken.startsWith(`devtok_${deviceId}.`) && !verifyDeviceCredential(deviceId, presentedToken)) {
+      return false;
+    }
+
+    if (blindIndexMatches(presentedToken, row.device_token, INDEX_NS)) {
+      return true;
+    }
+
+    // Support legacy rows that stored the raw token prior to blind indexing, and upgrade them.
+    if (safeEqual(presentedToken, row.device_token)) {
+      try {
+        this.db.execute('UPDATE devices SET device_token = ? WHERE id = ?', [blindIndex(presentedToken, INDEX_NS), row.id]);
+      } catch {}
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Rotates and issues a fresh server-signed device credential for an existing device.
+   * @param {string} deviceId
+   * @returns {string|null}
+   */
+  rotateToken(deviceId) {
+    if (!deviceId) return null;
+    const row = this.db.queryOne('SELECT id, status FROM devices WHERE id = ?', [deviceId]);
+    if (!row || row.status !== 'ACTIVE') return null;
+    const freshToken = issueDeviceCredential(deviceId);
+    const now = new Date().toISOString();
+    this.db.execute(
+      'UPDATE devices SET device_token = ?, last_seen_at = ? WHERE id = ?',
+      [blindIndex(freshToken, INDEX_NS), now, deviceId]
+    );
+    return freshToken;
   }
 
   /**

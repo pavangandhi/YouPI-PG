@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { syncAndroidAllowlist } from './sync-android-allowlist.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -96,6 +98,10 @@ const BIN_DIR = path.join(WORK_DIR, 'bin');
 fs.mkdirSync(BIN_DIR, { recursive: true });
 
 try {
+  // 0. Synchronize banking package allowlist from packages/common/src/upi-providers.js into Java service
+  console.log('🔄 [0/6] Synchronizing Android banking package allowlist from @youpi/common...');
+  syncAndroidAllowlist();
+
   // 1. Compile Java Source Code into Bytecode (.class)
   console.log('📦 [1/6] Compiling Java source files with javac...');
   const LIBS_DIR = path.resolve(APP_DIR, 'libs');
@@ -192,9 +198,10 @@ try {
   });
   console.log('   ✅ Verification Report:\n' + verifyOutput.trim().split('\n').map(l => '      ' + l).join('\n'));
 
-  // 6. Copy final APK to all distribution endpoints
-  console.log('🚚 [6/6] Distributing final APK to app portals...');
+  // 6. Copy final APK to all distribution endpoints & compute cryptographic checksum
+  console.log('🚚 [6/6] Distributing final APK to app portals and calculating SHA-256...');
   const apkBuffer = fs.readFileSync(signedApk);
+  const sha256 = crypto.createHash('sha256').update(apkBuffer).digest('hex');
   const targets = [
     path.resolve(REPO_ROOT, 'apps/android-observer-app/youpi-sms-gateway.apk'),
     path.resolve(REPO_ROOT, 'apps/payment-api/public/youpi-sms-gateway.apk'),
@@ -205,10 +212,15 @@ try {
     const dir = path.dirname(t);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(t, apkBuffer);
+    fs.writeFileSync(`${t}.sha256`, `${sha256}  youpi-sms-gateway.apk\n`, 'utf8');
     console.log(`   🎉 Saved signed installable APK: ${t} (${apkBuffer.length.toLocaleString()} bytes)`);
+    console.log(`      Checksum saved: ${t}.sha256`);
   }
 
-  console.log('\n✨ Android APK compilation and signing completed successfully!');
+  console.log(`\n========================================================`);
+  console.log(`🔑 Certified APK SHA-256: ${sha256}`);
+  console.log(`========================================================`);
+  console.log('\n✨ Android APK compilation, signing, and verification completed successfully!');
 } finally {
   try {
     process.chdir(REPO_ROOT);

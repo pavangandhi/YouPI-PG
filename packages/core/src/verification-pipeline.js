@@ -268,9 +268,15 @@ export class PaymentVerificationPipeline {
         `, [observedVpa]);
         if (row) session = this.sessionRepo.mapRow(row);
       }
-      // 3. There is deliberately NO gateway-wide fallback. An observation that cannot be tied
-      //    to a specific receiving account must not be attributed to whichever session happens
-      //    to be in flight on another merchant's VPA.
+      // 3. Check for recently completed session on this receiving account for dual verification upgrade
+      if (!session && input.receivingAccountId) {
+        const sixtySecsAgo = new Date(Date.now() - 60000).toISOString();
+        const row = this.db.queryOne(
+          `SELECT * FROM payment_sessions WHERE receiving_account_id = ? AND status = 'SUCCESS' AND completed_at >= ? ORDER BY completed_at DESC LIMIT 1`,
+          [input.receivingAccountId, sixtySecsAgo]
+        );
+        if (row) session = this.sessionRepo.mapRow(row);
+      }
     }
 
     let customer = null;
@@ -676,15 +682,18 @@ export class PaymentVerificationPipeline {
       });
     }
 
-    if (session.expiresAt) {
-      const sessionExpiresAt = parseSessionTime(session.expiresAt);
-      if (receivedAt.getTime() > sessionExpiresAt.getTime()) {
+    const activeDeadline = (session.status === PaymentStatus.PROCESSING && (session.processingExpiresAt || session.processing_expires_at))
+      ? parseSessionTime(session.processingExpiresAt || session.processing_expires_at)
+      : (session.expiresAt || session.expires_at ? parseSessionTime(session.expiresAt || session.expires_at) : null);
+
+    if (activeDeadline) {
+      if (receivedAt.getTime() > activeDeadline.getTime()) {
         stage4 = {
           stage: 4,
           name: 'VERIFICATION',
           status: 'FAILED',
           reason: 'SESSION_EXPIRED',
-          details: `Observation received timestamp (${receivedAt.toISOString()}) is after payment session expiration (${sessionExpiresAt.toISOString()}).`
+          details: `Observation received timestamp (${receivedAt.toISOString()}) is after payment session expiration (${activeDeadline.toISOString()}).`
         };
         return buildResult({
           finalStatus: 'REJECTED',
@@ -726,7 +735,16 @@ export class PaymentVerificationPipeline {
 
     // 4. Duplicate Check
     const receivingAccountId = session.receivingAccountId || input.receivingAccountId || '00000000-0000-0000-0000-000000000002';
-    const observerSourceEnum = source === 'GMAIL' ? ObserverSource.GMAIL : ObserverSource.SMS_GATEWAY;
+    let observerSourceEnum;
+    if (isGmailSource) {
+      observerSourceEnum = ObserverSource.GMAIL;
+    } else if (rawNormalizedSource === ObserverSource.GOOGLE_MESSAGES) {
+      observerSourceEnum = ObserverSource.GOOGLE_MESSAGES;
+    } else if (rawNormalizedSource === ObserverSource.ANDROID_OBSERVER) {
+      observerSourceEnum = ObserverSource.ANDROID_OBSERVER;
+    } else {
+      observerSourceEnum = ObserverSource.SMS_GATEWAY;
+    }
     const fingerprint = calculateObservationFingerprint({
       receivingAccountId,
       amountPaise: parsedData.amountPaise,

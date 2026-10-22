@@ -1,23 +1,23 @@
 import { HttpServer } from '../server.js';
-import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDERS, isInternalServiceRequest, isValidTransition } from '@youpi/common';
-import { validateSessionDeviceAccess } from '@youpi/core';
-import { isPaymentOwner } from '../auth-guard.js';
+import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDERS, isInternalServiceRequest, isValidTransition, getObserverToken } from '@youpi/common';
+import { validateSessionDeviceAccess, verifyRegisteredDeviceCredentials } from '@youpi/core';
+import { isAdminRequest, isPaymentOwner } from '../auth-guard.js';
 
 /**
  * Validates device access to an active payment session.
  * Enforces:
- * 1. If session has no device binding yet, binds to requesting device if provided.
- * 2. If session is bound to Device A, Device B receives DUPLICATE_SESSION_DETECTED (HTTP 409).
+ * 1. If session has no device binding yet, binds to requesting device only if it is registered and presents valid credentials.
+ * 2. If session is bound to Device A, any request omitting Device A's credentials or presenting Device B receives DUPLICATE_SESSION_DETECTED (HTTP 409).
  */
 function checkSessionDeviceAccess(session, req, body = null, ctx = null) {
   // If session is already in a terminal state, allow access so terminal status can be rendered
-  if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
+  if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED, PaymentStatus.SUSPICIOUS].includes(session.status)) {
     return { allowed: true, boundDeviceId: session.deviceId, isTerminal: true };
   }
 
-  // Only a co-located service holding the shared internal token may bypass device blocking.
+  // Only a co-located service on loopback holding the shared internal token (or an admin) may bypass device blocking.
   // The `X-Internal-Render` flag on its own is attacker-controlled and proves nothing.
-  if (isInternalServiceRequest(req)) {
+  if (isInternalServiceRequest(req) || isAdminRequest(req)) {
     return { allowed: true, boundDeviceId: session.deviceId };
   }
 
@@ -25,23 +25,45 @@ function checkSessionDeviceAccess(session, req, body = null, ctx = null) {
     body?.deviceId ||
     (req.query && req.query.deviceId) ||
     null;
+  const deviceToken = req.headers['x-device-token'] ||
+    body?.deviceToken ||
+    (req.query && req.query.deviceToken) ||
+    null;
+  const deviceSignature = req.headers['x-device-signature'] ||
+    body?.deviceSignature ||
+    null;
+  const signaturePayload = req.headers['x-device-payload'] ||
+    body?.signaturePayload ||
+    null;
 
   // If session does not have a device binding yet:
   if (!session.deviceId) {
     if (requestingDeviceId) {
+      const credCheck = verifyRegisteredDeviceCredentials({
+        deviceId: requestingDeviceId,
+        deviceToken,
+        deviceSignature,
+        signaturePayload,
+        deviceRepo: ctx?.deviceRepo
+      });
+      if (!credCheck.valid) {
+        return {
+          allowed: false,
+          statusCode: 409,
+          body: {
+            error: credCheck.error === 'DEVICE_SIGNATURE_INVALID' ? 'DEVICE_SIGNATURE_INVALID' : 'DUPLICATE_SESSION_DETECTED',
+            code: credCheck.error,
+            session_id: session.id,
+            conflicting_session_id: session.id,
+            action: 'END_SESSION_AND_CREATE_NEW',
+            message: credCheck.message || 'Unregistered or unverified device identity.',
+            boundDeviceId: null,
+            requestingDeviceId
+          }
+        };
+      }
       if (ctx?.deviceRepo) {
-        let dev = ctx.deviceRepo.findById(requestingDeviceId);
-        if (!dev) {
-          try {
-            ctx.deviceRepo.create({
-              id: requestingDeviceId,
-              publicKey: `adhoc_${requestingDeviceId}`,
-              fingerprintHash: `fp_${requestingDeviceId}`
-            });
-          } catch {}
-        } else {
-          ctx.deviceRepo.touch(requestingDeviceId);
-        }
+        ctx.deviceRepo.touch(requestingDeviceId);
       }
       if (ctx?.sessionRepo) {
         try {
@@ -55,29 +77,32 @@ function checkSessionDeviceAccess(session, req, body = null, ctx = null) {
     return { allowed: true, boundDeviceId: session.deviceId };
   }
 
-  // If session HAS a bound device:
-  // Allow if requesting device matches bound device OR if requesting device is omitted on same session
-  if (!requestingDeviceId || requestingDeviceId === session.deviceId) {
-    if (requestingDeviceId && ctx?.deviceRepo) {
-      ctx.deviceRepo.touch(requestingDeviceId);
-    }
-    return { allowed: true, boundDeviceId: session.deviceId };
+  // Session HAS a bound device:
+  // Require matching deviceId AND valid cryptographic credential (token or signature).
+  const validation = validateSessionDeviceAccess({
+    session,
+    requestingDeviceId,
+    deviceToken,
+    deviceSignature,
+    signaturePayload,
+    deviceRepo: ctx?.deviceRepo
+  });
+
+  if (!validation.allowed) {
+    return {
+      allowed: false,
+      statusCode: 409,
+      body: {
+        ...validation,
+        conflicting_session_id: session.id
+      }
+    };
   }
 
-  // Device mismatch: only reject if an explicitly DIFFERENT device ID was provided!
-  return {
-    allowed: false,
-    statusCode: 409,
-    body: {
-      error: 'DUPLICATE_SESSION_DETECTED',
-      session_id: session.id,
-      conflicting_session_id: session.id,
-      action: 'END_SESSION_AND_CREATE_NEW',
-      message: 'This payment session was created on another device. For security reasons, this session cannot be continued from this device.',
-      boundDeviceId: session.deviceId,
-      requestingDeviceId
-    }
-  };
+  if (ctx?.deviceRepo) {
+    ctx.deviceRepo.touch(session.deviceId);
+  }
+  return { allowed: true, boundDeviceId: session.deviceId };
 }
 
 /**
@@ -211,7 +236,10 @@ async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFF
   if (!smsHealthy) {
     try {
       const smsPort = Number(process.env.SMS_OBSERVER_PORT || 6002);
-      const res = await fetch(`http://127.0.0.1:${smsPort}/api/browser/status`, { signal: AbortSignal.timeout(800) });
+      const res = await fetch(`http://127.0.0.1:${smsPort}/api/browser/status`, {
+          headers: { 'Authorization': `Bearer ${getObserverToken()}` },
+          signal: AbortSignal.timeout(800)
+        });
       if (res.ok) {
         const data = await res.json();
         const isRecent = data.lastSeenAt && (Date.now() - new Date(data.lastSeenAt).getTime() < 300000);
@@ -246,7 +274,10 @@ async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFF
 
       if (!pollerActive) {
         try {
-          const res = await fetch(`http://127.0.0.1:${gmailPort}/api/browser/status`, { signal: AbortSignal.timeout(800) });
+          const res = await fetch(`http://127.0.0.1:${gmailPort}/api/browser/status`, {
+          headers: { 'Authorization': `Bearer ${getObserverToken()}` },
+          signal: AbortSignal.timeout(800)
+        });
           if (res.ok) {
             const data = await res.json();
             if (data.isLoggedIn || data.status === 'CONNECTED' || data.isPolling) {
@@ -278,7 +309,10 @@ async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFF
       // Check if browser-based Gmail automator is actively logged in
       try {
         const gmailPort = Number(process.env.GMAIL_OBSERVER_PORT || 6003);
-        const res = await fetch(`http://127.0.0.1:${gmailPort}/api/browser/status`, { signal: AbortSignal.timeout(800) });
+        const res = await fetch(`http://127.0.0.1:${gmailPort}/api/browser/status`, {
+          headers: { 'Authorization': `Bearer ${getObserverToken()}` },
+          signal: AbortSignal.timeout(800)
+        });
         if (res.ok) {
           const data = await res.json();
           if (data.isLoggedIn === true && data.status === 'CONNECTED') {
@@ -411,6 +445,14 @@ export function registerCheckoutRoutes(server, ctx) {
         status: session.status,
         timeRemainingSeconds: 0,
         isTerminal: true,
+        // The return URL belongs to the terminal payload too. The checkout
+        // page reads it from the *state* it was last given, and a terminal
+        // session is answered by this branch — so a session that ends without
+        // it loses the merchant's return address, and the customer is left
+        // staring at a success screen with no way back to the store. The
+        // field is already public in the non-terminal payload below, so
+        // including it here exposes nothing new.
+        returnUrl: session.returnUrl,
         branding
       });
       return;
@@ -544,19 +586,19 @@ export function registerCheckoutRoutes(server, ctx) {
     const publicMetadata = isOwnerCaller ? (session.metadata || {}) : {};
 
     // Single active payment session check (Section 1 & 2)
-    const requestingDeviceId = req.headers['x-device-id'] || session.deviceId || null;
+    const requestingDeviceId = req.headers['x-device-id'] || null;
     let hasActiveSessionConflict = false;
     let conflictingSession = null;
     const conflictingActive = ctx.sessionRepo.findConflictingActiveSession
       ? ctx.sessionRepo.findConflictingActiveSession({
           customerId: session.customerId,
-          deviceId: requestingDeviceId,
+          deviceId: requestingDeviceId || session.deviceId || null,
           excludeSessionId: session.id
         })
       : null;
 
     if (conflictingActive && conflictingActive.id !== session.id && [PaymentStatus.INITIATED, PaymentStatus.ACTIVE, PaymentStatus.QUEUED].includes(session.status)) {
-      if (requestingDeviceId && conflictingActive.deviceId && requestingDeviceId !== conflictingActive.deviceId) {
+      if (conflictingActive.deviceId && (!requestingDeviceId || requestingDeviceId !== conflictingActive.deviceId)) {
         // CASE 3: Active session on another device -> DUPLICATE_SESSION_DETECTED
         HttpServer.json(res, 409, {
           error: 'DUPLICATE_SESSION_DETECTED',
@@ -654,29 +696,51 @@ export function registerCheckoutRoutes(server, ctx) {
   // POST /api/v1/checkout/:id/bind-customer
   server.post('/api/v1/checkout/:id/bind-customer', async (req, res, params) => {
     const body = await HttpServer.parseBody(req);
-    const token = body.token || body.sessionToken || ((req.headers['authorization'] || '').startsWith('Bearer ') ? req.headers['authorization'].slice(7).trim() : null);
+    const token = body.token ||
+      body.sessionToken ||
+      req.headers['x-customer-token'] ||
+      ((req.headers['authorization'] || '').startsWith('Bearer ') ? req.headers['authorization'].slice(7).trim() : null);
     const { customerId } = body;
-
-    let customer = null;
-    if (token && ctx.customerSessionRepo) {
-      const authContext = ctx.customerSessionRepo.findByToken(token);
-      if (!authContext) {
-        HttpServer.json(res, 401, { error: 'Invalid or expired customer session token.' });
-        return;
-      }
-      customer = authContext.customer;
-    } else if (customerId && ctx.customerRepo) {
-      customer = ctx.customerRepo.findById(customerId);
-    }
-
-    if (!customer) {
-      HttpServer.json(res, 400, { error: 'A valid customer session token or customerId is required.' });
-      return;
-    }
 
     const session = ctx.sessionRepo.findById(params.id);
     if (!session) {
       HttpServer.json(res, 404, { error: `Payment session not found: ${params.id}` });
+      return;
+    }
+
+    // INVARIANT: Payment session identity is IMMUTABLE once bound!
+    // Cannot mutate or hijack an active session to another customer identity.
+    if (session.customerId && customerId && session.customerId !== customerId) {
+      HttpServer.json(res, 409, {
+        error: 'Payment session is already bound to another customer identity and cannot be mutated or reassigned.'
+      });
+      return;
+    }
+
+    // Require a valid customer session token; never accept a bare client-asserted customerId!
+    if (!token || typeof token !== 'string' || !ctx.customerSessionRepo) {
+      HttpServer.json(res, 401, {
+        error: 'A valid customer session token is required to bind a customer identity.',
+        code: 'CUSTOMER_SESSION_REQUIRED'
+      });
+      return;
+    }
+
+    const authContext = ctx.customerSessionRepo.findByToken(token.trim());
+    if (!authContext || !authContext.customer) {
+      HttpServer.json(res, 401, {
+        error: 'Invalid or expired customer session token.',
+        code: 'CUSTOMER_SESSION_REQUIRED'
+      });
+      return;
+    }
+
+    const customer = authContext.customer;
+    if (customerId && customerId !== customer.id) {
+      HttpServer.json(res, 401, {
+        error: 'Customer ID does not match authenticated session token.',
+        code: 'CUSTOMER_SESSION_MISMATCH'
+      });
       return;
     }
 
@@ -690,8 +754,6 @@ export function registerCheckoutRoutes(server, ctx) {
       try { ctx.deviceRepo.associateCustomer(deviceAccess.boundDeviceId, customer.id); } catch {}
     }
 
-    // INVARIANT: Payment session identity is IMMUTABLE once bound!
-    // Cannot mutate or hijack an active session to another customer identity.
     if (session.customerId && session.customerId !== customer.id) {
       HttpServer.json(res, 409, {
         error: 'Payment session is already bound to another customer identity and cannot be mutated or reassigned.'
@@ -748,8 +810,8 @@ export function registerCheckoutRoutes(server, ctx) {
 
     // INVARIANT: Single Active Payment Session per Customer
     if (otherActive && otherActive.id !== params.id) {
-      const requestingDeviceId = req.headers['x-device-id'] || null;
-      if (requestingDeviceId && otherActive.deviceId && requestingDeviceId !== otherActive.deviceId) {
+      const requestingDeviceId = req.headers['x-device-id'] || body?.deviceId || null;
+      if (otherActive.deviceId && (!requestingDeviceId || requestingDeviceId !== otherActive.deviceId)) {
         // CASE 3: Active session on another device -> DUPLICATE_SESSION_DETECTED
         HttpServer.json(res, 409, {
           error: 'DUPLICATE_SESSION_DETECTED',
@@ -839,6 +901,14 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
+    if (session.status === PaymentStatus.PROCESSING) {
+      HttpServer.json(res, 409, {
+        error: 'SESSION_PROCESSING',
+        message: 'Cannot retry payment while session is in PROCESSING status.'
+      });
+      return;
+    }
+
     if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
       HttpServer.json(res, 400, { error: `Cannot retry payment for terminal session in status '${session.status}'` });
       return;
@@ -847,10 +917,27 @@ export function registerCheckoutRoutes(server, ctx) {
     const customerId = session.customerId;
     const requestingDeviceId = req.headers['x-device-id'] || session.deviceId || null;
 
-    // Find all conflicting active/processing/queued sessions for this customer OR device
+    // Never cancel a session that is in PROCESSING (in-flight bank verification).
+    const processingConflict = ctx.db.query(`
+      SELECT id FROM payment_sessions
+      WHERE id != ? AND status = 'PROCESSING'
+        AND (
+          (? IS NOT NULL AND customer_id = ?)
+          OR (? IS NOT NULL AND device_id = ?)
+        )
+    `, [session.id, customerId, customerId, requestingDeviceId, requestingDeviceId]);
+    if (processingConflict.length > 0) {
+      HttpServer.json(res, 409, {
+        error: 'SESSION_PROCESSING',
+        message: 'Another payment session for this customer or device is currently in bank verification (PROCESSING) and cannot be cancelled.'
+      });
+      return;
+    }
+
+    // Find all conflicting active/queued sessions for this customer OR device
     const conflicting = ctx.db.query(`
       SELECT id, receiving_account_id, status FROM payment_sessions
-      WHERE id != ? AND status IN ('ACTIVE', 'PROCESSING', 'QUEUED')
+      WHERE id != ? AND status IN ('ACTIVE', 'QUEUED')
         AND (
           (? IS NOT NULL AND customer_id = ?)
           OR (? IS NOT NULL AND device_id = ?)
@@ -997,6 +1084,14 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
+    if (session.status === PaymentStatus.PROCESSING) {
+      HttpServer.json(res, 409, {
+        error: 'SESSION_PROCESSING',
+        message: 'Cannot cancel a payment session while bank verification is in progress (PROCESSING).'
+      });
+      return;
+    }
+
     // Cancelling releases the merchant's scarce UPI slot and ends a live payment, so it is
     // subject to the same device-binding check as the other state-changing checkout actions.
     // Without this, anyone holding a payment id could grief an in-flight checkout.
@@ -1035,13 +1130,13 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
-    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
-      HttpServer.json(res, 400, { error: `Cannot switch payment method for terminal session in status '${session.status}'` });
+    if (session.status === PaymentStatus.PROCESSING) {
+      HttpServer.json(res, 400, { error: `Cannot switch payment method while payment is in PROCESSING status: Cannot switch payment method for session in status 'PROCESSING'` });
       return;
     }
 
-    if (session.status === PaymentStatus.PROCESSING) {
-      HttpServer.json(res, 400, { error: `Cannot switch payment method while payment is in PROCESSING status` });
+    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
+      HttpServer.json(res, 400, { error: `Cannot switch payment method for session in status '${session.status}'` });
       return;
     }
 
@@ -1494,6 +1589,34 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
+    const deviceAccess = checkSessionDeviceAccess(session, req, body, ctx);
+    if (!deviceAccess.allowed) {
+      HttpServer.json(res, deviceAccess.statusCode || 409, deviceAccess.body);
+      return;
+    }
+
+    const token = body.token ||
+      body.sessionToken ||
+      req.headers['x-customer-token'] ||
+      ((req.headers['authorization'] || '').startsWith('Bearer ') ? req.headers['authorization'].slice(7).trim() : null);
+    const authContext = (token && typeof token === 'string' && ctx.customerSessionRepo)
+      ? ctx.customerSessionRepo.findByToken(token.trim())
+      : null;
+
+    const hasValidCustomerToken = Boolean(
+      authContext?.customer && (!session.customerId || authContext.customer.id === session.customerId)
+    );
+    const hasVerifiedDevice = Boolean(deviceAccess.boundDeviceId);
+    const hasOwnerAuth = isPaymentOwner(req, session, ctx);
+
+    if (!hasValidCustomerToken && !hasVerifiedDevice && !hasOwnerAuth) {
+      HttpServer.json(res, 401, {
+        error: 'A valid customer session token or bound device credential is required to trigger checkout hooks.',
+        code: 'CUSTOMER_SESSION_REQUIRED'
+      });
+      return;
+    }
+
     if (ctx.auditRepo) {
       ctx.auditRepo.log({
         merchantId: session.merchantId,
@@ -1599,18 +1722,105 @@ export function registerCheckoutRoutes(server, ctx) {
     }
 
     const sourceSession = (conflictingSessionId ? ctx.sessionRepo.findById(conflictingSessionId) : null) || targetSession;
-    const customerId = body?.customerId || sourceSession?.customerId || targetSession.customerId || null;
 
-    // 1. Identify ALL sessions on old/other devices that must be cancelled
+    // A settled order must not be restarted. The restarted session deliberately reuses the
+    // merchant's order reference, and the unique (merchant_id, order_id) index rejects a
+    // second row for an order that already succeeded — which surfaced as a 500. Refuse with a
+    // clear conflict instead of attempting the duplicate.
+    const paidSession = [sourceSession, targetSession, session].find(s => s && s.status === PaymentStatus.SUCCESS);
+    if (paidSession) {
+      HttpServer.json(res, 409, {
+        error: 'ORDER_ALREADY_PAID',
+        message: 'This order has already been paid and cannot be restarted.',
+        orderId: paidSession.orderId,
+        status: PaymentStatus.SUCCESS
+      });
+      return;
+    }
+
+    const processingSession = [sourceSession, targetSession, session].find(s => s && s.status === PaymentStatus.PROCESSING);
+    if (processingSession) {
+      HttpServer.json(res, 409, {
+        error: 'SESSION_PROCESSING',
+        message: 'Cannot terminate or restart a payment session while bank verification is in progress (PROCESSING).',
+        sessionId: processingSession.id,
+        status: PaymentStatus.PROCESSING
+      });
+      return;
+    }
+
+    const newDeviceToken = req.headers['x-device-token'] || body?.deviceToken || null;
+    const newDeviceSignature = req.headers['x-device-signature'] || body?.deviceSignature || null;
+    const newSignaturePayload = req.headers['x-device-payload'] || body?.signaturePayload || null;
+
+    const credCheck = verifyRegisteredDeviceCredentials({
+      deviceId: newDeviceId,
+      deviceToken: newDeviceToken,
+      deviceSignature: newDeviceSignature,
+      signaturePayload: newSignaturePayload,
+      deviceRepo: ctx.deviceRepo
+    });
+    if (!credCheck.valid) {
+      HttpServer.json(res, 401, {
+        error: credCheck.error || 'DEVICE_CREDENTIALS_INVALID',
+        message: credCheck.message || 'A registered device and valid device credential are required.'
+      });
+      return;
+    }
+
+    // Never accept an unverified customerId from the request body!
+    const rawCustToken = body?.token ||
+      body?.sessionToken ||
+      req.headers['x-customer-token'] ||
+      ((req.headers['authorization'] || '').startsWith('Bearer ') ? req.headers['authorization'].slice(7).trim() : null);
+    const authCtx = (rawCustToken && ctx.customerSessionRepo)
+      ? ctx.customerSessionRepo.findByToken(String(rawCustToken).trim())
+      : null;
+    const authenticatedCustomerId = authCtx?.customer?.id || null;
+
+    if (body?.customerId && (!authenticatedCustomerId || body.customerId !== authenticatedCustomerId)) {
+      HttpServer.json(res, 401, {
+        error: 'CUSTOMER_AUTH_REQUIRED',
+        message: 'Customer identity cannot be supplied in the request body without a matching valid customer session token.'
+      });
+      return;
+    }
+
+    if (authenticatedCustomerId && sourceSession?.customerId && sourceSession.customerId !== authenticatedCustomerId) {
+      HttpServer.json(res, 403, {
+        error: 'CUSTOMER_MISMATCH',
+        message: 'Authenticated customer does not match the payment session owner.'
+      });
+      return;
+    }
+
+    const customerId = authenticatedCustomerId || sourceSession?.customerId || targetSession.customerId || null;
+
+    // 1. Identify ALL sessions on old/other devices that must be cancelled (excluding PROCESSING and terminal states)
+    const NON_CANCELLABLE_STATES = [
+      PaymentStatus.PROCESSING,
+      PaymentStatus.CANCELLED,
+      PaymentStatus.EXPIRED,
+      PaymentStatus.FAILED,
+      PaymentStatus.SUCCESS,
+      PaymentStatus.SUSPICIOUS
+    ];
     const sessionsToTerminate = new Map();
 
-    if (![PaymentStatus.CANCELLED, PaymentStatus.EXPIRED, PaymentStatus.FAILED, PaymentStatus.SUCCESS].includes(targetSession.status)) {
+    if (!NON_CANCELLABLE_STATES.includes(targetSession.status)) {
       sessionsToTerminate.set(targetSession.id, targetSession);
     }
 
     if (conflictingSessionId) {
       const confSess = ctx.sessionRepo.findById(conflictingSessionId);
-      if (confSess && ![PaymentStatus.CANCELLED, PaymentStatus.EXPIRED, PaymentStatus.FAILED, PaymentStatus.SUCCESS].includes(confSess.status)) {
+      if (confSess?.status === PaymentStatus.PROCESSING) {
+        HttpServer.json(res, 409, {
+          error: 'SESSION_PROCESSING',
+          message: 'Conflicting payment session is currently in bank verification (PROCESSING) and cannot be terminated.'
+        });
+        return;
+      }
+      if (confSess && !NON_CANCELLABLE_STATES.includes(confSess.status)) {
         sessionsToTerminate.set(confSess.id, confSess);
       }
     }
@@ -1618,7 +1828,14 @@ export function registerCheckoutRoutes(server, ctx) {
     if (customerId && ctx.sessionRepo.findAllActiveOrPendingForCustomer) {
       const custSessions = ctx.sessionRepo.findAllActiveOrPendingForCustomer(customerId);
       for (const cs of custSessions) {
-        if (![PaymentStatus.CANCELLED, PaymentStatus.EXPIRED, PaymentStatus.FAILED, PaymentStatus.SUCCESS].includes(cs.status)) {
+        if (cs.status === PaymentStatus.PROCESSING) {
+          HttpServer.json(res, 409, {
+            error: 'SESSION_PROCESSING',
+            message: 'Another payment session for this customer is currently in bank verification (PROCESSING) and cannot be terminated.'
+          });
+          return;
+        }
+        if (!NON_CANCELLABLE_STATES.includes(cs.status)) {
           if (!cs.deviceId || cs.deviceId !== newDeviceId || cs.id === targetSession.id) {
             sessionsToTerminate.set(cs.id, cs);
           }
@@ -1626,7 +1843,7 @@ export function registerCheckoutRoutes(server, ctx) {
       }
     }
 
-    if (session && session.id !== targetSession.id && ![PaymentStatus.CANCELLED, PaymentStatus.EXPIRED, PaymentStatus.FAILED, PaymentStatus.SUCCESS].includes(session.status)) {
+    if (session && session.id !== targetSession.id && !NON_CANCELLABLE_STATES.includes(session.status)) {
       sessionsToTerminate.set(session.id, session);
     }
 
@@ -1638,6 +1855,13 @@ export function registerCheckoutRoutes(server, ctx) {
         const cleanTargetOrder = targetSession.orderId ? targetSession.orderId.replace(/-R\d+$/, '') : '';
         const cleanActiveOrder = activeOnAcc.orderId ? activeOnAcc.orderId.replace(/-R\d+$/, '') : '';
         if ((cleanTargetOrder && cleanTargetOrder === cleanActiveOrder) || (customerId && activeOnAcc.customerId === customerId)) {
+          if (activeOnAcc.status === PaymentStatus.PROCESSING) {
+            HttpServer.json(res, 409, {
+              error: 'SESSION_PROCESSING',
+              message: 'Active payment session for this order is currently in bank verification (PROCESSING) and cannot be terminated.'
+            });
+            return;
+          }
           sessionsToTerminate.set(activeOnAcc.id, activeOnAcc);
         }
       }
@@ -1718,25 +1942,12 @@ export function registerCheckoutRoutes(server, ctx) {
       }
     }
 
-    // 4. Generate unique order reference from sourceSession
-    const cleanOrderId = sourceSession.orderId ? sourceSession.orderId.replace(/-R\d+$/, '') : `ORD-${Date.now()}`;
-    const randSuffix = Math.floor(1000 + Math.random() * 9000);
-    const newOrderId = `${cleanOrderId}-R${randSuffix}`;
+    // 4. Preserve merchant's exact order reference from sourceSession
+    const newOrderId = sourceSession.orderId ? sourceSession.orderId.replace(/-R\d+$/, '') : `ORD-${Date.now()}`;
 
-    // 5. Ensure device exists and register
+    // 5. Touch verified device
     if (newDeviceId && ctx.deviceRepo) {
-      let dev = ctx.deviceRepo.findById(newDeviceId);
-      if (!dev) {
-        try {
-          ctx.deviceRepo.create({
-            id: newDeviceId,
-            publicKey: `adhoc_${newDeviceId}`,
-            fingerprintHash: `fp_${newDeviceId}`
-          });
-        } catch {}
-      } else {
-        ctx.deviceRepo.touch(newDeviceId);
-      }
+      ctx.deviceRepo.touch(newDeviceId);
     }
 
     // 6. Create fresh payment session bound to newDeviceId

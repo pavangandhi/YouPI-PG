@@ -19,14 +19,31 @@ try {
   }
 } catch {}
 
-// Authoritative runtime mode enforcement (start.js takes absolute precedence)
-process.env.YOUPI_MODE = 'production';
-process.env.NODE_ENV = 'production';
+// Authoritative runtime mode enforcement (start.js takes absolute precedence).
+//
+// Production is the default and the ONLY mode that requires a Cloudflare domain: nothing
+// ever falls back to localhost implicitly. A containerised or LAN-only deployment can
+// opt out EXPLICITLY with YOUPI_ALLOW_LOCALHOST_MODE=true together with
+// YOUPI_MODE=localhost, so the operator has asked for it rather than it being a silent
+// fallback.
+const allowLocalhostMode = String(process.env.YOUPI_ALLOW_LOCALHOST_MODE || '').trim().toLowerCase() === 'true';
+const requestedMode = String(process.env.YOUPI_MODE || '').trim().toLowerCase();
+const runInLocalhostMode = allowLocalhostMode && requestedMode === 'localhost';
 
+if (runInLocalhostMode) {
+  console.log('\n====================================================');
+  console.log('🚀 Starting YOUPI PG V2 — Localhost Mode (explicit opt-in)');
+  console.log('====================================================');
+  process.env.YOUPI_MODE = 'localhost';
+  process.env.NODE_ENV = process.env.NODE_ENV || 'development';
+} else {
+  process.env.YOUPI_MODE = 'production';
+  process.env.NODE_ENV = 'production';
 
-console.log('====================================================');
-console.log('🚀 Starting YOUPI PG V2 — Production Gateway');
-console.log('====================================================');
+  console.log('\n====================================================');
+  console.log('🚀 Starting YOUPI PG V2 — Production Gateway');
+  console.log('====================================================');
+}
 
 // 1. Run database migrations & load persisted configuration (Part B3: never overwrite settings)
 console.log('[1/3] Loading persisted production database & settings...');
@@ -38,7 +55,7 @@ const branding = merchant?.branding || {};
 const domain = (branding.cloudflareDomain || branding.domainTld || process.env.CLOUDFLARE_DOMAIN || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
 const prefix = (branding.deploymentPrefix || branding.domainPrefix || process.env.DEPLOYMENT_PREFIX || 'pay').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '') || 'pay';
 
-if (!domain) {
+if (!domain && !runInLocalhostMode) {
   console.error('\n================================================================');
   console.error('❌ [CONFIGURATION ERROR] PRODUCTION STARTUP FAILED');
   console.error('================================================================');
@@ -54,14 +71,14 @@ if (!domain) {
 
 let runtimeUrls;
 try {
-  runtimeUrls = resolveRuntimeUrls({ envMode: 'production', domain, prefix });
+  runtimeUrls = resolveRuntimeUrls({ envMode: runInLocalhostMode ? 'localhost' : 'production', domain, prefix });
 } catch (err) {
   console.error('\n❌ [CONFIGURATION ERROR]:', err.message);
   process.exit(1);
 }
 
-console.log(`[✓] Authoritative Runtime Mode: PRODUCTION`);
-console.log(`[✓] Cloudflare Domain: ${runtimeUrls.domain}`);
+console.log(`[✓] Authoritative Runtime Mode: ${runInLocalhostMode ? 'LOCALHOST (explicit opt-in)' : 'PRODUCTION'}`);
+console.log(`[✓] ${runInLocalhostMode ? 'Public Host' : 'Cloudflare Domain'}: ${runtimeUrls.domain}`);
 console.log(`[✓] Deployment Prefix: ${runtimeUrls.prefix}\n`);
 
 // Check for user-configured Cloudflare Tunnel command
@@ -83,9 +100,11 @@ console.log('[3/3] Starting core production gateway services (Pure API & Android
 await cc.processManager.startAll();
 
 console.log('====================================================');
-console.log('🟢 YOUPI PG V2 PRODUCTION GATEWAY ONLINE & ACTIVE');
+console.log(runInLocalhostMode
+  ? '🟢 YOUPI PG V2 GATEWAY ONLINE & ACTIVE (localhost mode)'
+  : '🟢 YOUPI PG V2 PRODUCTION GATEWAY ONLINE & ACTIVE');
 console.log('====================================================');
-console.log('AUTHORITATIVE PUBLIC CLOUDFLARE ROUTES:');
+console.log(runInLocalhostMode ? 'LOCAL SERVICE ROUTES:' : 'AUTHORITATIVE PUBLIC CLOUDFLARE ROUTES:');
 console.log(`• Checkout Portal:      ${runtimeUrls.checkoutUrl}  (-> :7000)`);
 console.log(`• Payment Core API:     ${runtimeUrls.apiUrl}  (-> :6100)`);
 console.log(`• Merchant Admin Hub:   ${runtimeUrls.adminUrl}  (-> :6001)`);
@@ -95,7 +114,9 @@ console.log('----------------------------------------------------');
 console.log('OBSERVATION CHANNELS:');
 console.log('• Android SMS Observer: Native APK -> Public Payment API');
 console.log('• Gmail API Observer:   OAuth2 API -> Public Payment API');
-console.log('• Legacy Chrome CDP:    DISABLED in production');
+console.log(runInLocalhostMode
+  ? '• Legacy Chrome CDP:    ENABLED in localhost mode'
+  : '• Legacy Chrome CDP:    DISABLED in production');
 console.log('====================================================');
 console.log('Press Ctrl+C to stop all services gracefully.');
 

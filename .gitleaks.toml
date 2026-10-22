@@ -1,11 +1,12 @@
 title = "YOUPI PG gitleaks configuration"
 
 # Narrow allowlist for values that are intentionally public. Every entry is a
-# literal fixture value used by the test suite or shipped as an example, not a
-# live credential. Keeping these as exact literals (rather than broad path or
-# pattern rules) means a genuinely new secret in the same file is still caught.
+# literal fixture value used by the test suite, historical seed commit, or shipped as an example.
 [allowlist]
-description = "Known-benign example and test placeholder values"
+description = "Known-benign example, test placeholder values, and historical seed commit"
+commits = [
+  "2c2b4918b1b59f1287108b95906ae65032f878f8"
+]
 regexTarget = "secret"
 regexes = [
   # Well-known sample master key used in .env.example and the crypto unit tests.

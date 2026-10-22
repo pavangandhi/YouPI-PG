@@ -132,7 +132,7 @@ public class ApiClient {
         return false;
     }
 
-    public boolean sendObservation(long amountPaise, double amount, String bankRef, String senderVpa, String title, String text) {
+    public boolean sendObservation(long amountPaise, double amount, String bankRef, String senderVpa, String title, String text, String packageName) {
         if (!isPaired()) return false;
 
         String deviceId = prefs.getString("device_id", null);
@@ -145,6 +145,9 @@ public class ApiClient {
             JSONObject raw = new JSONObject();
             raw.put("title", title != null ? title : "");
             raw.put("text", text != null ? text : "");
+            if (packageName != null && !packageName.isEmpty()) {
+                raw.put("package", packageName);
+            }
 
             JSONObject json = new JSONObject();
             json.put("deviceId", deviceId);
@@ -165,6 +168,10 @@ public class ApiClient {
             Log.e(TAG, "sendObservation error: " + e.getMessage());
         }
         return false;
+    }
+
+    public boolean sendObservation(long amountPaise, double amount, String bankRef, String senderVpa, String title, String text) {
+        return sendObservation(amountPaise, amount, bankRef, senderVpa, title, text, null);
     }
 
     public void unpair() {

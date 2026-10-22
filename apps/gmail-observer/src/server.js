@@ -375,8 +375,8 @@ export class GmailObserverServer {
 
       // GET /api/browser/status
       if (pathname === '/api/browser/status') {
-        // Auto-ensure connection if currently idle/standby
-        if (this.automator.mode === 'STANDBY' && !this.automator.isEnsuring) {
+        // Only trigger a background connection attempt when an authenticated observer/admin asks
+        if (hasBearer(req, getObserverToken(), getAdminToken()) && this.automator.mode === 'STANDBY' && !this.automator.isEnsuring) {
           this.automator.autoEnsureConnection().catch(() => {});
         }
         res.writeHead(200, {

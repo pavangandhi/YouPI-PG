@@ -1,5 +1,10 @@
 import crypto from 'node:crypto';
-import { encryptAtRest, decryptAtRest } from '@youpi/common';
+import { encryptAtRest, decryptAtRest, safeEqual } from '@youpi/common';
+
+/** Computes a deterministic SHA-256 hex digest for storing and verifying merchant API keys. */
+export function hashApiKey(rawKey) {
+  return crypto.createHash('sha256').update(String(rawKey)).digest('hex');
+}
 
 /** Gmail OAuth credentials are nested inside `branding.gmailConfig`; encrypt just those. */
 const GMAIL_SECRET_FIELDS = ['clientSecret', 'refreshToken', 'apiKey'];
@@ -50,10 +55,12 @@ export class MerchantRepository {
       ? serializeBranding(data.branding)
       : (data.branding || '{"primaryColor":"#2563eb","appName":"YOUPI PG","logoUrl":null}');
     const now = new Date().toISOString();
+    const rawWebhookSecret = data.webhookSecret || crypto.randomBytes(32).toString('hex');
+    const apiKeyHash = data.apiKeyHash || (data.apiKey ? hashApiKey(data.apiKey) : hashApiKey(rawWebhookSecret));
 
     const sql = `
-      INSERT INTO merchants (id, business_name, slug, contact_email, contact_phone, webhook_url, webhook_secret, branding, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO merchants (id, business_name, slug, contact_email, contact_phone, webhook_url, webhook_secret, api_key_hash, branding, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     this.db.execute(sql, [
@@ -64,7 +71,8 @@ export class MerchantRepository {
       data.contactPhone,
       data.webhookUrl || null,
       // Webhook HMAC key must be recoverable at signing time, so it is encrypted at rest.
-      encryptAtRest(data.webhookSecret || crypto.randomBytes(32).toString('hex')),
+      encryptAtRest(rawWebhookSecret),
+      apiKeyHash,
       branding,
       now,
       now
@@ -123,6 +131,17 @@ export class MerchantRepository {
     if (updates.webhookSecret !== undefined) {
       fields.push('webhook_secret = ?');
       params.push(encryptAtRest(updates.webhookSecret));
+      if (updates.apiKey === undefined && updates.apiKeyHash === undefined) {
+        fields.push('api_key_hash = ?');
+        params.push(hashApiKey(updates.webhookSecret));
+      }
+    }
+    if (updates.apiKey !== undefined) {
+      fields.push('api_key_hash = ?');
+      params.push(hashApiKey(updates.apiKey));
+    } else if (updates.apiKeyHash !== undefined) {
+      fields.push('api_key_hash = ?');
+      params.push(updates.apiKeyHash);
     }
     if (updates.branding !== undefined) {
       fields.push('branding = ?');
@@ -140,6 +159,23 @@ export class MerchantRepository {
     return this.findById(id);
   }
 
+  /**
+   * Verifies a candidate merchant API key against the merchant's stored SHA-256 apiKeyHash
+   * (or webhookSecret for backward compatibility) in constant time.
+   */
+  verifyApiKey(merchant, candidateKey) {
+    if (!merchant || !candidateKey || typeof candidateKey !== 'string') return false;
+    const clean = candidateKey.trim();
+    if (!clean) return false;
+    if (merchant.apiKeyHash && safeEqual(hashApiKey(clean), merchant.apiKeyHash)) {
+      return true;
+    }
+    if (merchant.webhookSecret && safeEqual(clean, merchant.webhookSecret)) {
+      return true;
+    }
+    return false;
+  }
+
   mapRow(row) {
     return {
       id: row.id,
@@ -150,6 +186,7 @@ export class MerchantRepository {
       webhookUrl: row.webhook_url,
       // Plaintext rows written before encryption existed decrypt to themselves.
       webhookSecret: decryptAtRest(row.webhook_secret),
+      apiKeyHash: row.api_key_hash || null,
       branding: deserializeBranding(row.branding),
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at)

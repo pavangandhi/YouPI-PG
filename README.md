@@ -343,8 +343,12 @@ window.Youpi.pay({
 >  **CRITICAL SECURITY RULE:** Never fulfill orders based solely on frontend browser events. Always verify the backend HMAC-SHA256 signature! Consumers **MUST** compute the HMAC over the raw, unparsed request bytes before any JSON parsing.
 
 #### Webhook Contract:
-- **Header**: `X-Gateway-Signature: sha256=<64_char_hex_hash>`
-- **Additional Headers**: `X-Gateway-Event: SUCCESS`, `X-Gateway-Delivery-Id: <uuid>`, `X-Gateway-Timestamp: <timestamp_ms>`
+- **Header**: `X-Gateway-Signature: sha256=<64_char_hex_hash>` — `HMAC-SHA256(webhookSecret, rawRequestBody)`
+- **Additional Headers**:
+  - `X-Gateway-Event: SUCCESS`
+  - `X-Gateway-Delivery-Id: <uuid>` — stable across retries; use it to deduplicate
+  - `X-Gateway-Timestamp: <timestamp_ms>` — the time the delivery was FIRST signed
+  - `X-Gateway-Signature-V2: sha256=<64_char_hex_hash>` — `HMAC-SHA256(webhookSecret, "<timestamp_ms>.<rawRequestBody>")`, binds the timestamp into the signature
 - **Payload Fields**:
   - `event`: `'SUCCESS'`
   - `orderId`: Merchant order ID (string)
@@ -352,6 +356,15 @@ window.Youpi.pay({
   - `amountPaise`: Integer amount in Paise, e.g. `49900`
   - `utr`: 12-digit bank reference number
   - `paymentId`: Unique gateway payment session UUID
+  - `deliveryId`: UUID of this delivery (matches the `X-Gateway-Delivery-Id` header)
+  - `timestamp`: Epoch milliseconds the delivery was first signed (matches `X-Gateway-Timestamp`)
+  - `verificationTag`, `verificationLevel`: Verification provenance
+- **Retries**: a failed delivery is retried with backoff up to 1 hour later. The body is
+  resent byte for byte, so `X-Gateway-Timestamp` and `X-Gateway-Delivery-Id` still describe
+  the ORIGINAL delivery. Any freshness window you enforce must therefore cover the gateway's
+  retry schedule; deduplicate on `deliveryId` rather than on the timestamp.
+- **Amount matching**: reusing an `orderId` with a different amount is rejected with
+  `409 ORDER_AMOUNT_MISMATCH`.
 
 #### Polyglot Webhook Verification Snippets:
 
@@ -517,7 +530,7 @@ YOUPI PG confirms payments without expensive commercial banking APIs using a tri
                        SUCCESS CONFIRMED
 ```
 
-1. **Android Observer App:** Install [`apps/android-observer-app/youpi-sms-gateway.apk`](apps/android-observer-app/youpi-sms-gateway.apk) on any secondary Android smartphone with the receiving bank SIM. Scan the pairing QR code in Merchant Admin to establish an encrypted HMAC link.
+1. **Android Observer App:** Install [`apps/android-observer-app/youpi-sms-gateway.apk`](apps/android-observer-app/youpi-sms-gateway.apk) (Certified SHA-256: `959218223e75da4784744c16afaf7bc121cff377dff04f041875237042f51601`) on any secondary Android smartphone with the receiving bank SIM. Scan the pairing QR code in Merchant Admin to establish an encrypted HMAC link.
 2. **Gmail Observer:** Connect your bank-registered Google account using standard OAuth2 credentials.
    <details>
    <summary><b>🔍 View Verified Indian Bank Domains & RBI <code>.bank.in</code> Registry</b></summary>

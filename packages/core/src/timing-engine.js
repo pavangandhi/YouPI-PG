@@ -200,14 +200,14 @@ export class TimingEngine {
    * @param {string} sessionId
    */
   handleCancel(sessionId) {
-    this.clearTimers(sessionId);
-
     const session = this.sessionRepo.findById(sessionId);
     if (!session) return null;
 
-    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
-      return session; // already terminal
+    if ([PaymentStatus.PROCESSING, PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED, PaymentStatus.SUSPICIOUS].includes(session.status)) {
+      return session; // cannot cancel in-flight PROCESSING or already terminal sessions
     }
+
+    this.clearTimers(sessionId);
 
     const updated = this.sessionRepo.transitionToTerminal(sessionId, PaymentStatus.CANCELLED);
 

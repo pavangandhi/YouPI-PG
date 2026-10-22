@@ -94,4 +94,30 @@ describe('Android Payment Observer Integration Tests', () => {
     const updated = apiInstance.app.context.sessionRepo.findById(session.id);
     assert.equal(updated.status, PaymentStatus.SUCCESS);
   });
+
+  test('Issue #61: rejects notification observation when rawNotification has missing or empty package', async () => {
+    const resWithoutPkg = await driver.submitObservation({
+      amount: '100.00',
+      receivingAccountId: '00000000-0000-0000-0000-000000000002',
+      utr: 'UTR-MISSING-PKG',
+      notificationText: 'Payment of ₹100 received from user@bank on UPI',
+      package: ''
+    });
+
+    assert.equal(resWithoutPkg.status, 400);
+    assert.match(resWithoutPkg.body.error, /must specify a valid package name/);
+  });
+
+  test('Issue #61: rejects notification observation from untrusted/unallowed package name', async () => {
+    const resUntrusted = await driver.submitObservation({
+      amount: '100.00',
+      receivingAccountId: '00000000-0000-0000-0000-000000000002',
+      utr: 'UTR-UNTRUSTED-PKG',
+      notificationText: 'Payment of ₹100 received from fake@bank on FakeApp',
+      package: 'com.attacker.fake.banking'
+    });
+
+    assert.equal(resUntrusted.status, 400);
+    assert.match(resUntrusted.body.error, /Untrusted Android notification package/);
+  });
 });

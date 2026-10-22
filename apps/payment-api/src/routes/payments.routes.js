@@ -1,7 +1,7 @@
 import { HttpServer } from '../server.js';
-import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus } from '@youpi/common';
-import { isTerminalStatus, toPublicOutcome } from '@youpi/core';
-import { isPaymentOwner } from '../auth-guard.js';
+import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus, safeEqual, verifyHmac } from '@youpi/common';
+import { isTerminalStatus, toPublicOutcome, verifyRegisteredDeviceCredentials } from '@youpi/core';
+import { isAdminRequest, isPaymentOwner } from '../auth-guard.js';
 
 /**
  * Registers merchant-facing payment routes.
@@ -46,28 +46,135 @@ export function registerPaymentRoutes(server, ctx) {
       return;
     }
 
+    const presentedMerchantKey = req.headers['x-merchant-key'] || body.merchantKey;
+    const presentedOrderToken = req.headers['x-order-token'] || body.orderToken;
+
+    if (presentedMerchantKey !== undefined && presentedMerchantKey !== null) {
+      const keyValid = typeof ctx.merchantRepo.verifyApiKey === 'function'
+        ? ctx.merchantRepo.verifyApiKey(merchant, String(presentedMerchantKey))
+        : (Boolean(merchant.webhookSecret) && safeEqual(String(presentedMerchantKey).trim(), merchant.webhookSecret));
+      if (!keyValid) {
+        HttpServer.json(res, 401, { error: 'Invalid merchant key', code: 'INVALID_MERCHANT_KEY' });
+        return;
+      }
+    } else if (presentedOrderToken) {
+      let tokenAmountPaise;
+      try {
+        tokenAmountPaise = toPaise(body.amount);
+      } catch {
+        tokenAmountPaise = -1n;
+      }
+      const tokenCurrency = (body.currency || 'INR').toUpperCase();
+      const canonicalOrderPayload = `${merchant.id}:${body.orderId || ''}:${tokenAmountPaise.toString()}:${tokenCurrency}`;
+      const rawTokenSig = String(presentedOrderToken).replace(/^sha256=/, '').trim();
+      if (!merchant.webhookSecret || !verifyHmac(canonicalOrderPayload, merchant.webhookSecret, rawTokenSig)) {
+        HttpServer.json(res, 401, { error: 'Invalid order token', code: 'INVALID_ORDER_TOKEN' });
+        return;
+      }
+    } else if (!isAdminRequest(req)) {
+      // No credential was presented. The public one-script integration (the browser SDK)
+      // cannot carry a merchant secret, so this path stays open - but only for the
+      // gateway's own default merchant. Naming a different merchant requires that
+      // merchant's key (or an order token), so an anonymous caller still cannot inject
+      // sessions into another tenant's queue.
+      const defaultMerchant = ctx.merchantRepo.getDefault
+        ? ctx.merchantRepo.getDefault()
+        : (ctx.merchantRepo.findById('00000000-0000-0000-0000-000000000001') || ctx.merchantRepo.findAll()[0]);
+      if (!defaultMerchant || merchant.id !== defaultMerchant.id) {
+        HttpServer.json(res, 401, {
+          error: 'Merchant API key is required (X-Merchant-Key) for this merchant.',
+          code: 'MISSING_MERCHANT_KEY'
+        });
+        return;
+      }
+    }
+
     if (!body.orderId || !body.amount) {
       HttpServer.json(res, 400, { error: 'Missing required fields: orderId and amount.' });
       return;
     }
 
+    let amountPaise;
+    try {
+      amountPaise = toPaise(body.amount);
+    } catch (err) {
+      HttpServer.json(res, 400, { error: err.message });
+      return;
+    }
+    const requestedCurrency = (body.currency || 'INR').toUpperCase();
+
+    const isExplicitTestAutoActivate = body.autoActivate === true || body.autoActivate === 'true';
+    if (isExplicitTestAutoActivate) {
+      const autoActivateAllowed =
+        process.env.NODE_ENV === 'test' ||
+        process.env.ALLOW_TEST_AUTOACTIVATE === 'true' ||
+        isAdminRequest(req);
+      if (!autoActivateAllowed) {
+        HttpServer.json(res, 403, {
+          error: 'autoActivate is restricted to admin or test environments.',
+          code: 'AUTOACTIVATE_FORBIDDEN'
+        });
+        return;
+      }
+    }
+
+    // returnUrl is echoed back to the customer's browser as a redirect target after
+    // payment, so only absolute http(s) URLs are ever stored. This is the write-side
+    // complement to the checkout page's sanitizeRedirectUrl.
+    if (body.returnUrl !== undefined && body.returnUrl !== null && body.returnUrl !== '') {
+      if (typeof body.returnUrl !== 'string') {
+        HttpServer.json(res, 400, { error: 'returnUrl must be a string.' });
+        return;
+      }
+      let parsedReturnUrl;
+      try {
+        parsedReturnUrl = new URL(body.returnUrl.trim());
+      } catch {
+        HttpServer.json(res, 400, { error: 'returnUrl must be an absolute http(s) URL.' });
+        return;
+      }
+      if (parsedReturnUrl.protocol !== 'http:' && parsedReturnUrl.protocol !== 'https:') {
+        HttpServer.json(res, 400, { error: 'returnUrl must use the http or https scheme.' });
+        return;
+      }
+      body.returnUrl = parsedReturnUrl.href;
+    }
+
     const deviceId = body.deviceId || req.headers['x-device-id'] || null;
-    if (deviceId && ctx.deviceRepo) {
-      let dev = ctx.deviceRepo.findById(deviceId);
-      if (!dev) {
-        try {
-          ctx.deviceRepo.create({
-            id: deviceId,
-            publicKey: `adhoc_${deviceId}`,
-            fingerprintHash: `fp_${deviceId}`
-          });
-        } catch {}
+    const deviceToken = body.deviceToken || req.headers['x-device-token'] || null;
+    const deviceSignature = body.deviceSignature || req.headers['x-device-signature'] || null;
+    const signaturePayload = body.signaturePayload || req.headers['x-device-payload'] || null;
+
+    if (deviceId) {
+      const credCheck = verifyRegisteredDeviceCredentials({
+        deviceId,
+        deviceToken,
+        deviceSignature,
+        signaturePayload,
+        deviceRepo: ctx.deviceRepo
+      });
+      if (!credCheck.valid) {
+        HttpServer.json(res, 401, {
+          error: credCheck.error || 'DEVICE_CREDENTIALS_INVALID',
+          message: credCheck.message || 'A registered device and valid device credential are required.'
+        });
+        return;
       }
     }
 
     // Check idempotency & active session state
     const existing = ctx.sessionRepo.findByOrderId(merchant.id, body.orderId);
     if (existing) {
+      const existingCurrency = (existing.currency || 'INR').toUpperCase();
+      if (existing.amountPaise !== amountPaise || existingCurrency !== requestedCurrency) {
+        HttpServer.json(res, 409, {
+          error: 'ORDER_AMOUNT_MISMATCH',
+          code: 'ORDER_AMOUNT_MISMATCH',
+          message: `Order ${body.orderId} already exists with a different amount or currency.`
+        });
+        return;
+      }
+
       // If SUCCESS: order is already paid, return existing completed session
       if (existing.status === PaymentStatus.SUCCESS) {
         HttpServer.json(res, 200, {
@@ -87,17 +194,26 @@ export function registerPaymentRoutes(server, ctx) {
       const isStale = (existing.status === PaymentStatus.ACTIVE && existing.expiresAt && existing.expiresAt.getTime() <= now) ||
         (existing.status === PaymentStatus.PROCESSING && existing.processingExpiresAt && existing.processingExpiresAt.getTime() <= now);
       if (isStale) {
-        ctx.sessionRepo.transitionToTerminal(existing.id, PaymentStatus.EXPIRED);
+        const terminalStatus = existing.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.EXPIRED;
+        ctx.sessionRepo.transitionToTerminal(existing.id, terminalStatus);
         if (existing.receivingAccountId) {
           ctx.queueEngine.promoteNext(existing.receivingAccountId);
         }
-        existing.status = PaymentStatus.EXPIRED;
+        existing.status = terminalStatus;
+        if (ctx.eventEmitter) {
+          ctx.eventEmitter.emit(`PAYMENT.${terminalStatus}`, {
+            paymentId: existing.id,
+            orderId: existing.orderId,
+            merchantId: existing.merchantId,
+            amountPaise: existing.amountPaise
+          });
+        }
       }
 
       // If existing is non-terminal (ACTIVE, PROCESSING, QUEUED, INITIATED):
       if ([PaymentStatus.ACTIVE, PaymentStatus.PROCESSING, PaymentStatus.QUEUED, PaymentStatus.INITIATED].includes(existing.status)) {
-        // CASE 3: Active session + Different device -> DUPLICATE_SESSION_DETECTED
-        if (deviceId && existing.deviceId && deviceId !== existing.deviceId) {
+        // CASE 3: Active session bound to a device + missing or different device -> DUPLICATE_SESSION_DETECTED
+        if (existing.deviceId && (!deviceId || deviceId !== existing.deviceId)) {
           HttpServer.json(res, 409, {
             error: 'DUPLICATE_SESSION_DETECTED',
             code: 'DEVICE_SESSION_MISMATCH',
@@ -127,18 +243,9 @@ export function registerPaymentRoutes(server, ctx) {
         return;
       }
 
-      // CASE 4: Previous session is TERMINAL (FAILED, EXPIRED, CANCELLED) -> RETRY / NEW PAYMENT!
-      const cleanOrderId = body.orderId.replace(/-R\d+$/, '');
-      const randSuffix = Math.floor(1000 + Math.random() * 9000);
-      body.orderId = `${cleanOrderId}-R${randSuffix}`;
-    }
-
-    let amountPaise;
-    try {
-      amountPaise = toPaise(body.amount);
-    } catch (err) {
-      HttpServer.json(res, 400, { error: err.message });
-      return;
+      // CASE 4: Previous session is TERMINAL (FAILED, EXPIRED, CANCELLED) -> RETRY / NEW ATTEMPT!
+      // Invariant: Keep merchant's exact orderId untouched so webhooks, reconciliations, and reporting align.
+      body.orderId = body.orderId.replace(/-R\d+$/, '');
     }
 
     const isCounterPayment = body.method === 'CASH_COUNTER' || body.method === 'CARD_COUNTER';
@@ -186,7 +293,7 @@ export function registerPaymentRoutes(server, ctx) {
     if (customerId && ctx.sessionRepo) {
       const activeForCust = ctx.sessionRepo.findActiveForCustomer ? ctx.sessionRepo.findActiveForCustomer(customerId) : null;
       if (activeForCust) {
-        if (deviceId && activeForCust.deviceId && deviceId !== activeForCust.deviceId) {
+        if (activeForCust.deviceId && (!deviceId || deviceId !== activeForCust.deviceId)) {
           HttpServer.json(res, 409, {
             error: 'DUPLICATE_SESSION_DETECTED',
             code: 'DEVICE_SESSION_MISMATCH',
@@ -209,7 +316,6 @@ export function registerPaymentRoutes(server, ctx) {
     // Digital UPI payments MUST ALWAYS start in status INITIATED without acquiring a concurrency slot or timer.
     // Only physical counter payments (CASH_COUNTER, CARD_COUNTER) start as ACTIVE (they do not use UPI slots).
     // The only exception for UPI auto-activation is explicit developer test suite flag: body.autoActivate === true.
-    const isExplicitTestAutoActivate = body.autoActivate === true || body.autoActivate === 'true';
     const shouldActivateNow = isCounterPayment || isExplicitTestAutoActivate;
     const initialStatus = isCounterPayment ? PaymentStatus.ACTIVE : PaymentStatus.INITIATED;
 
@@ -323,11 +429,12 @@ export function registerPaymentRoutes(server, ctx) {
     if (owner && session.customerId && ctx.customerRepo) {
       const c = ctx.customerRepo.findById(session.customerId);
       if (c) {
+        const isOwner = isPaymentOwner(req, session, ctx);
         customer = {
           id: c.id,
           name: c.name,
-          email: c.email,
-          mobileNumber: c.mobileNumber
+          email: isOwner ? c.email : (c.email ? `${c.email.slice(0, 2)}***@${c.email.split('@')[1] || '***'}` : null),
+          mobileNumber: isOwner ? c.mobileNumber : (c.mobileNumber ? `${c.mobileNumber.slice(0, 2)}******${c.mobileNumber.slice(-2)}` : null)
         };
       }
     }
@@ -376,11 +483,12 @@ export function registerPaymentRoutes(server, ctx) {
     if (owner && session.customerId && ctx.customerRepo) {
       const c = ctx.customerRepo.findById(session.customerId);
       if (c) {
+        const isOwner = isPaymentOwner(req, session, ctx);
         customer = {
           id: c.id,
           name: c.name,
-          email: c.email,
-          mobileNumber: c.mobileNumber
+          email: isOwner ? c.email : (c.email ? `${c.email.slice(0, 2)}***@${c.email.split('@')[1] || '***'}` : null),
+          mobileNumber: isOwner ? c.mobileNumber : (c.mobileNumber ? `${c.mobileNumber.slice(0, 2)}******${c.mobileNumber.slice(-2)}` : null)
         };
       }
     }

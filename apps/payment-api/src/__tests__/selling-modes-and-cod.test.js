@@ -296,6 +296,61 @@ describe('Architectural Update: Selling Modes (Online vs Offline), COD Flow, & C
     assert.deepEqual(stateCardOff.body.enabledMethods, ['UPI', 'CASH_COUNTER']);
   });
 
+  test('a settled order cannot be restarted (409, not a 500 from the unique index)', async () => {
+    // Earlier cases in this file switch the merchant's active VPA and leave sessions on it,
+    // so resolve the currently active account and release its slot before this case.
+    const activeAccount = testDb.queryOne(
+      `SELECT id FROM payment_receiving_accounts WHERE merchant_id = ? AND is_active = 1 LIMIT 1`,
+      ['00000000-0000-0000-0000-000000000001']
+    );
+    const accountId = activeAccount?.id || '00000000-0000-0000-0000-000000000002';
+    testDb.execute(
+      `UPDATE payment_sessions SET status = 'CANCELLED', updated_at = ?
+       WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING', 'QUEUED')`,
+      [new Date().toISOString(), accountId]
+    );
+    testDb.execute(
+      `UPDATE payment_receiving_accounts SET is_slot_busy = 0, current_active_session_id = NULL
+       WHERE id = ?`,
+      [accountId]
+    );
+
+    const pay = await request('/api/v1/payments', {
+      method: 'POST',
+      body: { orderId: 'PAID-ORD-RESTART', amount: '42.00', autoActivate: true }
+    });
+    assert.equal(pay.status, 201);
+    const paymentId = pay.body.paymentId;
+
+    // Drive the session to a terminal SUCCESS through the normal verification path.
+    await request(`/api/v1/checkout/${paymentId}/payment-done`, { method: 'POST' });
+    await request('/api/v1/pollers/events', {
+      method: 'POST',
+      body: {
+        source: 'GOOGLE_MESSAGES',
+        receivingAccountId: accountId,
+        amount: '42.00',
+        utr: 'UTR-PAID-ORD-RESTART',
+        rawText: 'A/C 1234 credited by Rs 42.00 via UPI/UTR-PAID-ORD-RESTART'
+      }
+    });
+    await new Promise(r => setTimeout(r, 6500));
+
+    const state = await request(`/api/v1/payments/${paymentId}`, { headers: { 'X-Merchant-Key': merchantSecret } });
+    assert.equal(state.body.status, 'SUCCESS');
+
+    // Restarting a paid order must fail cleanly. It reuses the merchant's order reference,
+    // and the unique (merchant_id, order_id) index would otherwise reject the duplicate row
+    // and surface as HTTP 500.
+    const restart = await request(`/api/v1/checkout/${paymentId}/end-and-restart-payment`, {
+      method: 'POST',
+      headers: { 'x-device-id': 'device-restart-b' },
+      body: {}
+    });
+    assert.equal(restart.status, 409);
+    assert.equal(restart.body.error, 'ORDER_ALREADY_PAID');
+  });
+
   test('SECURITY: customer contact is not disclosed to anonymous callers of the COD routes', async () => {
     const reg = await request('/api/v1/customer/register', {
       method: 'POST',
@@ -312,7 +367,7 @@ describe('Architectural Update: Selling Modes (Online vs Offline), COD Flow, & C
 
     await request(`/api/v1/checkout/${paymentId}/bind-customer`, {
       method: 'POST',
-      body: { customerId: reg.body.customerId }
+      body: { customerId: reg.body.customerId, token: customerToken }
     });
 
     // 1. Anonymous callers learn nothing about the customer.

@@ -95,6 +95,7 @@ describe('Auth guard: admin, observer and force-success endpoints', () => {
   test('counter-confirm cannot settle a UPI session, even with the admin token', async () => {
     const created = await call('/api/v1/payments', {
       method: 'POST',
+      token: TEST_ADMIN_TOKEN,
       body: { orderId: 'UPI-NO-FORCE-1', amount: '100.00', method: PaymentMethod.UPI, autoActivate: true }
     });
     assert.equal(created.status, 201);
@@ -114,6 +115,7 @@ describe('Auth guard: admin, observer and force-success endpoints', () => {
   test('a counter session can be confirmed once, and not again', async () => {
     const created = await call('/api/v1/payments', {
       method: 'POST',
+      token: TEST_ADMIN_TOKEN,
       body: { orderId: 'CASH-OK-1', amount: '50.00', method: PaymentMethod.CASH_COUNTER }
     });
     const { paymentId } = await created.json();

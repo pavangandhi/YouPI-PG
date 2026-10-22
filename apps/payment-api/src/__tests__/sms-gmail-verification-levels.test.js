@@ -198,6 +198,7 @@ describe('2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests', 
         receivingAccountId,
         amountPaise: '45000',
         amount: '450.00',
+        rawText: 'Dear Customer, INR 450.00 credited to A/C *4321. Ref: REF99887766 - HDFC Bank',
         observedAt: new Date().toISOString()
       })
     });

@@ -8,7 +8,8 @@ export class RecoveryEngine {
    *   accountRepo: import('@youpi/db').ReceivingAccountRepository,
    *   queueEngine: import('./queue-engine.js').QueueEngine,
    *   timingEngine: import('./timing-engine.js').TimingEngine,
-   *   auditRepo?: import('@youpi/db').AuditLogRepository
+   *   auditRepo?: import('@youpi/db').AuditLogRepository,
+   *   eventEmitter?: { emit: (event: string, payload: any) => void }
    * }} options
    */
   constructor(options) {
@@ -18,6 +19,7 @@ export class RecoveryEngine {
     this.queueEngine = options.queueEngine;
     this.timingEngine = options.timingEngine;
     this.auditRepo = options.auditRepo;
+    this.eventEmitter = options.eventEmitter;
   }
 
   /**
@@ -39,28 +41,54 @@ export class RecoveryEngine {
     const now = new Date();
     const nowIso = now.toISOString();
 
-    // 1. Recover overdue PROCESSING sessions -> mark FAILED
+    // 1. Recover overdue PROCESSING sessions -> mark SUCCESS if verified/attributed, else FAILED
     const overdueProcessing = this.db.query(`
-      SELECT id, receiving_account_id FROM payment_sessions
+      SELECT id, merchant_id, order_id, receiving_account_id, verification_level, attributed_observation_id FROM payment_sessions
       WHERE status = ? AND processing_expires_at < ?
     `, [PaymentStatus.PROCESSING, nowIso]);
 
     for (const row of overdueProcessing) {
-      this.sessionRepo.transitionToTerminal(row.id, PaymentStatus.FAILED);
-      failedCount++;
-      if (this.auditRepo) {
-        this.auditRepo.log({
-          entityType: 'PAYMENT_SESSION',
-          entityId: row.id,
-          action: 'CRASH_RECOVERY_EXPIRED_PROCESSING',
-          actorType: 'SYSTEM'
-        });
+      if (row.verification_level >= 1 || row.attributed_observation_id) {
+        this.sessionRepo.transitionToTerminal(row.id, PaymentStatus.SUCCESS);
+        if (this.auditRepo) {
+          this.auditRepo.log({
+            entityType: 'PAYMENT_SESSION',
+            entityId: row.id,
+            action: 'CRASH_RECOVERY_ATTRIBUTED_SUCCESS',
+            actorType: 'SYSTEM'
+          });
+        }
+        if (this.eventEmitter) {
+          this.eventEmitter.emit('PAYMENT.SUCCESS', {
+            paymentId: row.id,
+            orderId: row.order_id,
+            merchantId: row.merchant_id
+          });
+        }
+      } else {
+        this.sessionRepo.transitionToTerminal(row.id, PaymentStatus.FAILED);
+        failedCount++;
+        if (this.auditRepo) {
+          this.auditRepo.log({
+            entityType: 'PAYMENT_SESSION',
+            entityId: row.id,
+            action: 'CRASH_RECOVERY_EXPIRED_PROCESSING',
+            actorType: 'SYSTEM'
+          });
+        }
+        if (this.eventEmitter) {
+          this.eventEmitter.emit('PAYMENT.FAILED', {
+            paymentId: row.id,
+            orderId: row.order_id,
+            merchantId: row.merchant_id
+          });
+        }
       }
     }
 
     // 2. Recover overdue ACTIVE sessions -> mark EXPIRED
     const overdueActive = this.db.query(`
-      SELECT id, receiving_account_id FROM payment_sessions
+      SELECT id, merchant_id, order_id, receiving_account_id FROM payment_sessions
       WHERE status = ? AND expires_at < ?
     `, [PaymentStatus.ACTIVE, nowIso]);
 
@@ -73,6 +101,13 @@ export class RecoveryEngine {
           entityId: row.id,
           action: 'CRASH_RECOVERY_EXPIRED_ACTIVE',
           actorType: 'SYSTEM'
+        });
+      }
+      if (this.eventEmitter) {
+        this.eventEmitter.emit('PAYMENT.EXPIRED', {
+          paymentId: row.id,
+          orderId: row.order_id,
+          merchantId: row.merchant_id
         });
       }
     }

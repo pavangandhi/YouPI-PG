@@ -172,16 +172,29 @@ describe('Checkout Portal Integration Tests', () => {
       assert.equal(res.text.includes('id="drawerVpa"'), false);
     });
 
-    test('GET /css/checkout.css and /js/checkout.js return static modular assets with CORS', async () => {
+    test('GET /css/checkout.css returns the static stylesheet with CORS', async () => {
       const resCss = await get('/css/checkout.css');
       assert.equal(resCss.status, 200);
       assert.ok(resCss.headers['content-type'].includes('text/css'));
       assert.ok(resCss.text.includes('.ypg-wrapper'));
+    });
 
-      const resJs = await get('/js/checkout.js');
-      assert.equal(resJs.status, 200);
-      assert.ok(resJs.headers['content-type'].includes('application/javascript'));
-      assert.ok(resJs.text.includes('STORAGE_KEY_IDENTITY'));
+    test('the checkout page loads exactly one copy of the client script', async () => {
+      const res = await get('/checkout/pay_test_uuid_12345');
+      assert.equal(res.status, 200);
+
+      // The client script lives inline, in the rendered page. A second copy
+      // used to be loaded from /js/checkout.js, and two classic scripts that
+      // both declare `let state` at global scope are a syntax error: the
+      // second one never runs, and the page throws "Identifier 'state' has
+      // already been declared" on every single load.
+      assert.equal(res.text.includes('/js/checkout.js'), false);
+      assert.equal(res.text.includes('src="/js/'), false);
+
+      // The live copy is the inline one, and it is the hardened one — the
+      // redirect and postMessage guards live here.
+      assert.ok(res.text.includes('STORAGE_KEY_IDENTITY'));
+      assert.ok(res.text.includes('sanitizeRedirectUrl'));
     });
   });
 });

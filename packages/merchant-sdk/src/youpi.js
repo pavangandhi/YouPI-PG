@@ -60,6 +60,25 @@
   /**
    * YoupiCheckout class
    */
+  /**
+   * The gateway stores only an absolute http(s) returnUrl, so a relative successUrl is
+   * resolved against this storefront's own origin before it is sent. Without this a
+   * merchant using `data-success-url="/success"` would get a 400 from the API.
+   * @param {string} [raw]
+   * @returns {string|undefined} absolute http(s) URL, or undefined when unusable
+   */
+  function resolveReturnUrl(raw) {
+    if (!raw) return undefined;
+    try {
+      const base = (typeof window !== 'undefined' && window.location) ? window.location.href : undefined;
+      const parsed = new URL(raw, base);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+      return parsed.href;
+    } catch (e) {
+      return undefined;
+    }
+  }
+
   class YoupiCheckout {
     /**
      * @param {{
@@ -192,7 +211,7 @@
             customer: (custPayload.email || custPayload.phoneNumber || custPayload.fullName) ? custPayload : undefined,
             description: instance.options.description,
             metadata: instance.options.metadata,
-            returnUrl: instance.options.successUrl || undefined
+            returnUrl: resolveReturnUrl(instance.options.successUrl)
           })
         });
 
@@ -266,6 +285,16 @@
       // Add embedded flag and custom params
       const sep = targetUrl.includes('?') ? '&' : '?';
       targetUrl = `${targetUrl}${sep}embedded=1`;
+
+      // Declare this page's origin so the checkout can target its postMessages
+      // even when the browser strips the referrer. Opaque origins (file:) and
+      // non-http(s) schemes must not be announced.
+      try {
+        const parsed = new URL(window.location.href);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          targetUrl += `&youpiParentOrigin=${encodeURIComponent(parsed.origin)}`;
+        }
+      } catch {}
 
       if (this.options.amount) {
         targetUrl += `&customAmount=${encodeURIComponent(this.options.amount)}`;

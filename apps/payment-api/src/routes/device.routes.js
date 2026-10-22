@@ -1,5 +1,28 @@
 import { HttpServer } from '../server.js';
-import { generateFingerprintHash, normalizeDeviceSignals, verifyDeviceSignature } from '@youpi/core';
+import {
+  generateFingerprintHash,
+  normalizeDeviceSignals,
+  verifyDeviceSignature,
+  createDeviceChallenge,
+  consumeDeviceChallenge
+} from '@youpi/core';
+
+/**
+ * Resolves a verified customer ID strictly from a valid customer session token.
+ */
+function resolveAuthenticatedCustomerId(req, body, ctx) {
+  if (!ctx.customerSessionRepo) return null;
+  let token = body?.token || req.headers['x-customer-token'] || null;
+  if (!token) {
+    const authHeader = req.headers['authorization'] || '';
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice(7).trim();
+    }
+  }
+  if (!token || typeof token !== 'string') return null;
+  const authCtx = ctx.customerSessionRepo.findByToken(token.trim());
+  return authCtx?.customer?.id || null;
+}
 
 /**
  * Registers device identity and cryptographic binding routes.
@@ -7,23 +30,56 @@ import { generateFingerprintHash, normalizeDeviceSignals, verifyDeviceSignature 
  * @param {{
  *   deviceRepo: import('@youpi/db').DeviceRepository,
  *   customerRepo: import('@youpi/db').CustomerRepository,
+ *   customerSessionRepo?: import('@youpi/db').CustomerSessionRepository,
  *   auditRepo?: import('@youpi/db').AuditLogRepository
  * }} ctx
  */
 export function registerDeviceRoutes(server, ctx) {
+  // 0. POST /api/v1/devices/challenge
+  server.post('/api/v1/devices/challenge', async (req, res) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const { publicKey, deviceId } = body;
+
+    if (!publicKey && !deviceId) {
+      HttpServer.json(res, 400, { error: 'publicKey or deviceId is required' });
+      return;
+    }
+
+    const existing = publicKey
+      ? ctx.deviceRepo.findByPublicKey(String(publicKey).trim())
+      : ctx.deviceRepo.findById(String(deviceId).trim());
+
+    if (!existing || existing.status !== 'ACTIVE') {
+      HttpServer.json(res, 404, { error: 'Device not found or inactive' });
+      return;
+    }
+
+    const challenge = createDeviceChallenge(existing.id);
+    HttpServer.json(res, 200, {
+      success: true,
+      deviceId: existing.id,
+      challenge
+    });
+  });
+
   // 1. POST /api/v1/devices/register
   server.post('/api/v1/devices/register', async (req, res) => {
     const body = await HttpServer.parseBody(req).catch(() => ({}));
-    const { publicKey, signals } = body;
+    const { publicKey, signals, challenge, signature, payload } = body;
 
-    if (!publicKey) {
+    if (!publicKey || typeof publicKey !== 'string' || !publicKey.trim()) {
       HttpServer.json(res, 400, { error: 'Device public key is required for registration.' });
+      return;
+    }
+
+    const trimmedPublicKey = publicKey.trim();
+    if (trimmedPublicKey.startsWith('adhoc_')) {
+      HttpServer.json(res, 400, { error: 'Invalid device public key format.' });
       return;
     }
 
     // Resolve or generate fingerprint hash
     const clientSignals = signals || {};
-    // Extract server-visible headers if client didn't supply them
     if (!clientSignals.userAgent && req.headers['user-agent']) {
       clientSignals.userAgent = req.headers['user-agent'];
     }
@@ -34,31 +90,66 @@ export function registerDeviceRoutes(server, ctx) {
     const fingerprintHash = body.fingerprintHash || generateFingerprintHash(clientSignals);
     const normalized = normalizeDeviceSignals(clientSignals);
 
-    // Optional customer association from body or authorization token
-    let customerId = body.customerId || null;
-    if (!customerId) {
-      const authHeader = req.headers['authorization'] || '';
-      if (authHeader.startsWith('Bearer ') && ctx.customerSessionRepo) {
-        const token = authHeader.slice(7).trim();
-        const authCtx = ctx.customerSessionRepo.findByToken(token);
-        if (authCtx?.customer) {
-          customerId = authCtx.customer.id;
-        }
-      }
-    }
+    // Optional customer association strictly from verified customer session token (never bare customerId)
+    const customerId = resolveAuthenticatedCustomerId(req, body, ctx);
 
     // Check if device with this exact public key already exists
-    const existing = ctx.deviceRepo.findByPublicKey(publicKey);
+    const existing = ctx.deviceRepo.findByPublicKey(trimmedPublicKey);
     if (existing) {
+      if (existing.status !== 'ACTIVE') {
+        HttpServer.json(res, 403, { error: 'DEVICE_REVOKED', message: 'Device has been revoked or deactivated.' });
+        return;
+      }
+
+      // Never return or rotate a deviceToken for an existing publicKey unless the caller
+      // proves possession of the private key by signing a valid server-issued challenge.
+      const hasChallengeProof =
+        typeof challenge === 'string' &&
+        challenge.trim().length > 0 &&
+        typeof signature === 'string' &&
+        signature.trim().length > 0 &&
+        payload !== undefined &&
+        payload !== null;
+
+      if (!hasChallengeProof) {
+        const freshChallenge = createDeviceChallenge(existing.id);
+        HttpServer.json(res, 409, {
+          error: 'DEVICE_ALREADY_REGISTERED',
+          code: 'CHALLENGE_REQUIRED',
+          message: 'This public key is already registered. Sign the server challenge with your private key to rotate credentials.',
+          deviceId: existing.id,
+          challenge: freshChallenge,
+          isExisting: true
+        });
+        return;
+      }
+
+      const challengeOk = consumeDeviceChallenge(challenge.trim(), existing.id);
+      const sigOk = challengeOk && verifyDeviceSignature(
+        existing.publicKey,
+        payload,
+        signature,
+        { expectedDeviceId: existing.id, expectedChallenge: challenge.trim() }
+      );
+
+      if (!sigOk) {
+        HttpServer.json(res, 401, {
+          error: 'DEVICE_CHALLENGE_FAILED',
+          message: 'Failed to verify private-key ownership for existing device public key.'
+        });
+        return;
+      }
+
       if (customerId && !existing.customerId) {
         ctx.deviceRepo.associateCustomer(existing.id, customerId);
       }
       ctx.deviceRepo.touch(existing.id);
+      const rotatedToken = ctx.deviceRepo.rotateToken(existing.id);
 
       HttpServer.json(res, 200, {
         success: true,
         deviceId: existing.id,
-        deviceToken: existing.deviceToken,
+        deviceToken: rotatedToken,
         fingerprintHash: existing.fingerprintHash,
         status: existing.status,
         isExisting: true
@@ -69,7 +160,7 @@ export function registerDeviceRoutes(server, ctx) {
     // Register new device
     const device = ctx.deviceRepo.create({
       customerId,
-      publicKey,
+      publicKey: trimmedPublicKey,
       fingerprintHash,
       userAgent: normalized.userAgent,
       platform: normalized.platform,
@@ -109,26 +200,50 @@ export function registerDeviceRoutes(server, ctx) {
     const body = await HttpServer.parseBody(req).catch(() => ({}));
     const { deviceId, payload, signature, deviceToken } = body;
 
-    if (!deviceId) {
-      HttpServer.json(res, 400, { error: 'deviceId is required' });
+    if (!deviceId || typeof deviceId !== 'string') {
+      HttpServer.json(res, 400, { valid: false, error: 'deviceId is required' });
       return;
     }
 
     const device = ctx.deviceRepo.findById(deviceId);
-    if (!device || device.status !== 'ACTIVE') {
+    if (!device || device.status !== 'ACTIVE' || (typeof device.publicKey === 'string' && device.publicKey.startsWith('adhoc_'))) {
       HttpServer.json(res, 404, { valid: false, error: 'Device not found or inactive' });
       return;
     }
 
-    let tokenValid = true;
-    if (deviceToken && device.deviceToken !== deviceToken) {
-      tokenValid = false;
+    const hasToken = typeof deviceToken === 'string' && deviceToken.trim().length > 0;
+    const hasSig = typeof signature === 'string' && signature.trim().length > 0;
+    const hasPayload = payload !== undefined && payload !== null && String(payload).trim().length > 0;
+
+    // Require at least one cryptographic credential; never default to valid: true!
+    if (!hasToken && !hasSig) {
+      HttpServer.json(res, 401, {
+        valid: false,
+        error: 'DEVICE_CREDENTIALS_REQUIRED',
+        message: 'A deviceToken or cryptographic signature with payload is required.',
+        deviceId: device.id,
+        tokenValid: false,
+        signatureValid: false
+      });
+      return;
     }
 
-    let signatureValid = true;
-    if (signature && payload) {
-      signatureValid = verifyDeviceSignature(device.publicKey, payload, signature);
+    if ((hasSig && !hasPayload) || (!hasSig && hasPayload)) {
+      HttpServer.json(res, 401, {
+        valid: false,
+        error: 'DEVICE_SIGNATURE_INVALID',
+        message: 'Both signature and payload are required for signature verification.',
+        deviceId: device.id,
+        tokenValid: false,
+        signatureValid: false
+      });
+      return;
     }
+
+    const tokenValid = hasToken ? ctx.deviceRepo.verifyToken(device.id, deviceToken.trim()) : true;
+    const signatureValid = hasSig
+      ? verifyDeviceSignature(device.publicKey, payload, signature, { expectedDeviceId: device.id })
+      : true;
 
     const isValid = tokenValid && signatureValid;
 
@@ -136,8 +251,8 @@ export function registerDeviceRoutes(server, ctx) {
       valid: isValid,
       deviceId: device.id,
       customerId: device.customerId,
-      tokenValid,
-      signatureValid
+      tokenValid: hasToken ? tokenValid : false,
+      signatureValid: hasSig ? signatureValid : false
     });
   });
 

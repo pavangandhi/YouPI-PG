@@ -214,4 +214,24 @@ describe('@youpi/core Queue & Timing Engine Tests', () => {
     assert.equal(checkS2.status, PaymentStatus.ACTIVE);
     assert.equal(checkS2.queuePosition, 0);
   });
+  test('uses the configured payment window (PAYMENT_ACTIVE_WINDOW_MS) for activation and promotion', () => {
+    const engine = new QueueEngine({ sessionRepo, accountRepo, activeDurationMs: 60000 });
+    const mk = (orderId) => sessionRepo.create({ merchantId: defaultMerchant.id, receivingAccountId: testAccount.id, orderId, amountPaise: 20000n });
+    const a = mk('WIN-ORD-1');
+    const b = mk('WIN-ORD-2');
+
+    const t0 = Date.now();
+    const first = engine.enqueueOrActivate(a.id, testAccount.id);
+    assert.equal(first.status, PaymentStatus.ACTIVE);
+    const firstWindow = sessionRepo.findById(a.id).expiresAt.getTime() - t0;
+    assert.ok(firstWindow > 55000 && firstWindow < 65000, `first slot should get 60s, got ${firstWindow}ms`);
+
+    assert.equal(engine.enqueueOrActivate(b.id, testAccount.id).status, PaymentStatus.QUEUED);
+    sessionRepo.transitionToTerminal(a.id, PaymentStatus.EXPIRED);
+    const t1 = Date.now();
+    const promoted = engine.promoteNext(testAccount.id);
+    assert.ok(promoted, 'queued session was not promoted');
+    const promotedWindow = promoted.expiresAt.getTime() - t1;
+    assert.ok(promotedWindow > 55000 && promotedWindow < 65000, `promoted slot should get 60s, got ${promotedWindow}ms`);
+  });
 });

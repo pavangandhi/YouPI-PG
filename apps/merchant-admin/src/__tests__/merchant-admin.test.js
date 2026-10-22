@@ -64,4 +64,18 @@ describe('Merchant Admin Integration Tests', () => {
     const json = JSON.parse(res.text);
     assert.ok(Array.isArray(json));
   });
+
+  test('Control Center supervisor proxy routes (/api/services* and /api/logs/stream) require the admin token', async () => {
+    const anonServices = await get('/api/services');
+    assert.equal(anonServices.status, 401);
+
+    const wrongToken = await get('/api/services', { Authorization: 'Bearer wrong-token' });
+    assert.equal(wrongToken.status, 401);
+
+    const anonLogs = await get('/api/logs/stream');
+    assert.equal(anonLogs.status, 401);
+
+    const wrongQueryLogs = await get('/api/logs/stream?token=wrong-token');
+    assert.equal(wrongQueryLogs.status, 401);
+  });
 });

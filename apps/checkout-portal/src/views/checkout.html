@@ -168,10 +168,9 @@
       const paymentId = typeof PAYMENT_ID !== 'undefined' ? PAYMENT_ID : (state?.id || '');
 
       let baseOrigin = '';
-      if (state && state.returnUrl) {
-        try {
-          baseOrigin = new URL(state.returnUrl).origin;
-        } catch (e) { }
+      const safeReturn = sanitizeRedirectUrl(state && state.returnUrl);
+      if (safeReturn) {
+        baseOrigin = new URL(safeReturn).origin;
       }
       if (!baseOrigin && document.referrer) {
         try {
@@ -202,6 +201,8 @@
 
     // The storefront that embeds this iframe. Used both as the postMessage
     // target origin and to validate messages coming back from the parent.
+    // The referrer is the most trustworthy signal; when the browser strips it,
+    // youpi.js declares the parent origin in the URL (`youpiParentOrigin`).
     function resolveMerchantOrigin() {
       try {
         if (document.referrer) {
@@ -211,19 +212,24 @@
       } catch (e) { }
       try {
         const params = new URLSearchParams(window.location.search);
-        const explicit = params.get('origin') || params.get('merchantOrigin');
-        if (explicit) {
-          const parsed = new URL(explicit, window.location.origin);
+        for (const key of ['youpiParentOrigin', 'origin', 'merchantOrigin']) {
+          const declared = params.get(key);
+          if (!declared) continue;
+          const parsed = new URL(declared, window.location.origin);
           if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed.origin;
         }
       } catch (e) { }
       return null;
     }
 
-    // Posts to the embedding storefront instead of broadcasting to every origin.
+    // Posts to the embedding storefront. The message carries payment data, so it
+    // is only ever sent to a known merchant origin: when the origin cannot be
+    // resolved the message is dropped rather than broadcast to every origin.
     function postToMerchant(message) {
+      const target = resolveMerchantOrigin();
+      if (!target) return;
       try {
-        window.parent.postMessage(message, resolveMerchantOrigin() || '*');
+        window.parent.postMessage(message, target);
       } catch (e) { }
     }
 
@@ -324,10 +330,14 @@
         });
       } catch { }
 
+      const sessionToken = typeof getStoredSessionToken === 'function' ? getStoredSessionToken() : null;
+      const headers = typeof getApiHeaders === 'function'
+        ? getApiHeaders({ 'Content-Type': 'application/json', ...(sessionToken ? { 'x-customer-token': sessionToken } : {}) })
+        : { 'Content-Type': 'application/json', ...(sessionToken ? { 'x-customer-token': sessionToken } : {}) };
       fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/trigger-hook`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, details })
+        headers,
+        body: JSON.stringify({ action, details, ...(sessionToken ? { token: sessionToken } : {}) })
       }).catch(() => { });
     }
 
@@ -1190,7 +1200,7 @@
             }, () => {
               const el = document.getElementById('codTimerText');
               if (el) el.textContent = 'Expired';
-              fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST' }).catch(() => { });
+              fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST', headers: getApiHeaders() }).catch(() => { });
               loadState();
             });
           } else if (method === 'UPI') {
@@ -1202,7 +1212,7 @@
               }, () => {
                 const el = document.getElementById('activeTimerText');
                 if (el) el.textContent = 'Expired';
-                fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST' }).catch(() => { });
+                fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST', headers: getApiHeaders() }).catch(() => { });
                 loadState();
               });
             } else if (resData.status === 'QUEUED') {
@@ -1236,7 +1246,7 @@
       try {
         const res = await fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/confirm-cod`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
+          headers: getApiHeaders({ 'Content-Type': 'application/json' })
         });
         const data = await res.json();
         if (res.ok) {
@@ -1523,15 +1533,33 @@
       }
     }
 
+    // Policy links are merchant branding and land in an href, so only https is
+    // accepted and the value is escaped for attribute context.
+    function safeLegalUrl(candidate) {
+      if (typeof candidate !== 'string') return null;
+      const trimmed = candidate.trim();
+      if (!trimmed) return null;
+      let parsed;
+      try {
+        parsed = new URL(trimmed);
+      } catch (e) {
+        return null;
+      }
+      if (parsed.protocol !== 'https:') return null;
+      return parsed.href;
+    }
+
     function renderHelpLegalLinks(branding) {
       const container = document.getElementById('helpModalLegalLinks');
       if (!container) return;
       let html = '';
-      if (branding.privacyPolicyUrl) {
-        html += `<a href="${branding.privacyPolicyUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--ypg-blue); text-decoration:underline; font-weight:600;">Privacy Policy &nearr;</a>`;
+      const privacyUrl = safeLegalUrl(branding.privacyPolicyUrl);
+      if (privacyUrl) {
+        html += `<a href="${escapeHtml(privacyUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--ypg-blue); text-decoration:underline; font-weight:600;">Privacy Policy &nearr;</a>`;
       }
-      if (branding.termsUrl) {
-        html += `<a href="${branding.termsUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--ypg-blue); text-decoration:underline; font-weight:600;">Terms of Service &nearr;</a>`;
+      const termsHref = safeLegalUrl(branding.termsUrl);
+      if (termsHref) {
+        html += `<a href="${escapeHtml(termsHref)}" target="_blank" rel="noopener noreferrer" style="color:var(--ypg-blue); text-decoration:underline; font-weight:600;">Terms of Service &nearr;</a>`;
       }
       container.innerHTML = html;
       container.style.display = html ? 'flex' : 'none';
@@ -1792,7 +1820,7 @@
         if (b.hidePoweredBy) {
           legalDisclaimerEl.innerHTML = `Secured by 256-Bit Bank Encryption &bull; <span style="text-decoration:underline; cursor:pointer;" onclick="openHelpModal()">Privacy &amp; Terms</span>`;
         } else {
-          legalDisclaimerEl.innerHTML = `Secured by ${appName} &amp; 256-Bit Bank Encryption &bull; <span style="text-decoration:underline; cursor:pointer;" onclick="openHelpModal()">Privacy Notice</span>`;
+          legalDisclaimerEl.innerHTML = `Secured by ${escapeHtml(appName)} &amp; 256-Bit Bank Encryption &bull; <span style="text-decoration:underline; cursor:pointer;" onclick="openHelpModal()">Privacy Notice</span>`;
         }
       }
 
@@ -1948,11 +1976,12 @@
           } catch (e) { }
 
           const btnReturn = document.getElementById('btnReturnStore') || document.getElementById('btnReturnToStore');
-          if (btnReturn && data.returnUrl) {
+          const safeReturnUrl = sanitizeRedirectUrl(data.returnUrl);
+          if (btnReturn && safeReturnUrl) {
             btnReturn.hidden = false;
-            btnReturn.href = data.returnUrl;
+            btnReturn.href = safeReturnUrl;
             if (window.parent === window) {
-              setTimeout(() => { window.location.href = data.returnUrl; }, 2000);
+              setTimeout(() => { window.location.href = safeReturnUrl; }, 2000);
             }
           } else if (btnReturn) {
             btnReturn.hidden = true;
@@ -2088,7 +2117,7 @@
           }, () => {
             const el = document.getElementById('codTimerText');
             if (el) el.textContent = 'Expired';
-            fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST' }).catch(() => { });
+            fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST', headers: getApiHeaders() }).catch(() => { });
             loadState();
           }, data.expiresAt);
         } else if (currentSelectedMethod === 'CASH_COUNTER') {
@@ -2139,7 +2168,7 @@
             if (tText) tText.textContent = 'Expired';
             if (btnContinue) btnContinue.style.display = 'none';
             closeProcessingModal();
-            fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST' }).catch(() => { });
+            fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST', headers: getApiHeaders() }).catch(() => { });
             loadState();
           }, targetExpiry);
         }
@@ -2402,7 +2431,8 @@
 
       try {
         const res = await fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/payment-done`, {
-          method: 'POST'
+          method: 'POST',
+          headers: getApiHeaders()
         });
         if (res.ok) {
           loadState();
@@ -2584,13 +2614,7 @@
 
       try {
         await DeviceIdentity.getOrRegister();
-        const headers = { 'Content-Type': 'application/json' };
-        if (DeviceIdentity.currentDeviceId) {
-          headers['X-Device-Id'] = DeviceIdentity.currentDeviceId;
-        }
-        if (DeviceIdentity.currentDeviceToken) {
-          headers['X-Device-Token'] = DeviceIdentity.currentDeviceToken;
-        }
+        const headers = getApiHeaders({ 'Content-Type': 'application/json' });
 
         const conflictingSessionId = lastDuplicateSessionPayload?.conflicting_session_id || activeConflictSessionId || null;
 
@@ -2599,6 +2623,7 @@
           headers,
           body: JSON.stringify({
             deviceId: DeviceIdentity.currentDeviceId,
+            deviceToken: DeviceIdentity.currentDeviceToken,
             conflictingSessionId
           })
         });
@@ -2631,8 +2656,11 @@
       }
 
       try {
-        const devQuery = DeviceIdentity.currentDeviceId ? `?deviceId=${encodeURIComponent(DeviceIdentity.currentDeviceId)}` : '';
-        const streamUrl = `${API_BASE}/api/v1/checkout/${PAYMENT_ID}/stream${devQuery}`;
+        const params = new URLSearchParams();
+        if (DeviceIdentity.currentDeviceId) params.set('deviceId', DeviceIdentity.currentDeviceId);
+        if (DeviceIdentity.currentDeviceToken) params.set('deviceToken', DeviceIdentity.currentDeviceToken);
+        const qs = params.toString();
+        const streamUrl = `${API_BASE}/api/v1/checkout/${PAYMENT_ID}/stream${qs ? '?' + qs : ''}`;
         sse = new EventSource(streamUrl);
 
         const handleRealtimePayload = (event) => {
@@ -2709,11 +2737,13 @@
       const phoneBox = document.getElementById('helpModalMobilesContainer');
       const caseBox = document.getElementById('helpModalCaseInfoText');
 
+      // Support contacts are merchant branding, i.e. attacker-influenced input,
+      // so they are escaped before going into innerHTML.
       if (emailBox && info.supportEmails) {
-        emailBox.innerHTML = `<strong>Email:</strong> ${info.supportEmails.join(', ')}`;
+        emailBox.innerHTML = `<strong>Email:</strong> ${escapeHtml(info.supportEmails.join(', '))}`;
       }
       if (phoneBox && info.supportMobiles) {
-        phoneBox.innerHTML = `<strong>Phone:</strong> ${info.supportMobiles.join(', ')}`;
+        phoneBox.innerHTML = `<strong>Phone:</strong> ${escapeHtml(info.supportMobiles.join(', '))}`;
       }
       if (caseBox) {
         caseBox.textContent = `PAYMENT_ID: ${PAYMENT_ID}\nORDER_ID: ${state?.orderId || 'N/A'}\nAMOUNT: ₹${state?.amount || 'N/A'}\nSTATUS: ${state?.status || 'N/A'}`;

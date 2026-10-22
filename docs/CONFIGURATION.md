@@ -28,8 +28,21 @@
 | `YOUPI_ALLOW_DEV_TOOLS` | unset | Developer test-mode / simulator endpoints (`/admin/dev/*`, `simulate-observation`) are refused when `NODE_ENV=production` unless this is `true` |
 | `GMAIL_REDIRECT_URI` | derived | Gmail OAuth redirect URI. Defaults to `<gmail host from your configured domain>/oauth/callback` |
 | `ANDROID_HEARTBEAT_TIMEOUT_MS` | `180000` | Inactivity window before Android device is marked DISCONNECTED |
-| `CHECKOUT_FRAME_ANCESTORS` | unset (any origin) | Merchant origins (comma or space separated, e.g. `https://shop.example.com`) allowed to embed `/checkout/:id`. The `youpi.js` modal is an iframe, so a store on a different origin than the checkout portal must be listed here or the browser blocks the modal. When unset, any site may frame the checkout page. Only bare `http(s)` origins are accepted — a path, query, embedded credential or wildcard is ignored, so the value cannot widen the CSP or inject another directive |
+| `CHECKOUT_FRAME_ANCESTORS` | unset (any origin in development, `'self'` in production) | Merchant origins (comma or space separated, e.g. `https://shop.example.com`) allowed to embed `/checkout/:id`. The `youpi.js` modal is an iframe, so a store on a different origin than the checkout portal must be listed here or the browser blocks the modal. When unset, any site may frame the checkout page in development, while a production deployment (either `NODE_ENV=production` or `YOUPI_MODE=production`) fences the page to its own origin. Only bare `http(s)` origins are accepted — a path, query, embedded credential or wildcard is ignored, so the value cannot widen the CSP or inject another directive |
 | `YOUPI_ALLOW_PRIVATE_WEBHOOKS` | unset | Set to `true` to permit merchant webhook URLs on loopback/private networks. Required for self-hosted LAN targets; blocked by default as an SSRF guard |
+
+---
+
+## 1a. `returnUrl` requirements
+
+`POST /api/v1/payments` accepts a `returnUrl` that is echoed back to the customer's
+browser as a redirect target after the payment completes, so the gateway stores only
+**absolute** `http:` / `https:` URLs. A relative value, a `javascript:` URL or any other
+scheme is rejected with `400`.
+
+The official SDK resolves a relative `data-success-url` (for example `/success`) against
+the storefront's own origin before sending it, so relative storefront paths keep working
+without any change to merchant code. If you call the API directly, send an absolute URL.
 
 ---
 
@@ -46,6 +59,19 @@ prove which merchant it is. There are three accepted credentials:
 
 Affected routes: `GET /api/v1/payments/:id`, `GET /api/v1/payments/:id/cod`,
 `GET /api/v1/orders/:orderId/cod` and `GET /api/v1/checkout/:id/state`.
+
+### On `POST /api/v1/payments`
+
+`X-Merchant-Key` is **optional** here, and the request is refused with
+`401 MISSING_MERCHANT_KEY` only when it names a merchant other than the gateway's
+default one. The public one-script integration (the browser SDK) cannot carry a
+merchant secret — a secret in browser JavaScript is public — so the default-merchant
+path has to stay open. Use `X-Merchant-Key` (or `X-Order-Token`) whenever a request
+targets a specific tenant, and reuse an `orderId` only with the same amount: a
+mismatch is rejected with `409 ORDER_AMOUNT_MISMATCH`.
+
+`autoActivate: true` is restricted to admin-authenticated requests or to
+`NODE_ENV=test`; elsewhere it is refused with `403 AUTOACTIVATE_FORBIDDEN`.
 
 **Without a credential these routes return a redacted public view** — status, amount,
 currency, method and order id only. Customer name, email and phone number are never

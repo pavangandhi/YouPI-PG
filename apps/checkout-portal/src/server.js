@@ -40,20 +40,32 @@ export function frameAncestorOrigins(raw = process.env.CHECKOUT_FRAME_ANCESTORS)
 }
 
 /**
+ * True for production launches. scripts/start.js sets YOUPI_MODE/NODE_ENV to
+ * 'production'; the dev script and the test runner leave them on development/test.
+ */
+export function isProductionLike(env = process.env) {
+  return env.YOUPI_MODE === 'production' || env.NODE_ENV === 'production';
+}
+
+/**
  * Headers for the embeddable checkout page.
  *
- * The checkout page is embedded cross-origin by merchant storefronts, so the default is
- * permissive (`frame-ancestors *`). Deployments can pin the allowlist with
- * CHECKOUT_FRAME_ANCESTORS; when set, only those origins (plus the portal itself) may
- * frame the page. X-Frame-Options is dropped in that case because it cannot express a
- * list and would otherwise block the allowlisted storefronts.
+ * The checkout page is embedded cross-origin by merchant storefronts. An explicit
+ * CHECKOUT_FRAME_ANCESTORS always wins. Without one, production defaults to
+ * frame-ancestors 'self' so unknown sites cannot frame the page, while development
+ * stays permissive because the demo storefront (port 5000) embeds the portal
+ * (port 7000) across origins. X-Frame-Options is dropped when an allowlist is in
+ * effect because it cannot express a list and would block the allowlisted storefronts.
  */
-function checkoutFrameHeaders() {
-  const origins = frameAncestorOrigins();
+export function checkoutFrameHeaders(env = process.env) {
+  const configured = frameAncestorOrigins(env.CHECKOUT_FRAME_ANCESTORS);
+  const frameAncestors = configured.length
+    ? `'self' ${configured.join(' ')}`
+    : (isProductionLike(env) ? "'self'" : '*');
   return {
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Content-Security-Policy': `default-src 'self' data: blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors ${origins.length ? `'self' ${origins.join(' ')}` : '*'}; base-uri 'none'; form-action 'self'; object-src 'none'`
+    'Content-Security-Policy': `default-src 'self' data: blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors ${frameAncestors}; base-uri 'none'; form-action 'self'; object-src 'none'`
   };
 }
 

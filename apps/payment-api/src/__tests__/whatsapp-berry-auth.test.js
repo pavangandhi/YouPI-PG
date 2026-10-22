@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
+
 import { createPaymentApp } from '../index.js';
 import { Database } from '@youpi/db';
 import { authFetch } from '../../../../scripts/test-support.js';

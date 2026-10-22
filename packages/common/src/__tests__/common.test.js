@@ -19,6 +19,8 @@ import {
   getUpiProviders,
   findUpiProviderByPackage,
   findUpiProviderById,
+  ALLOWED_NOTIFICATION_PACKAGES,
+  isAllowedNotificationPackage,
   calculateObservationFingerprint
 } from '../index.js';
 
@@ -193,6 +195,27 @@ describe('@youpi/common Unit Tests', () => {
         assert.ok(!packages.has(p.packageName), `Duplicate package name: ${p.packageName}`);
         packages.add(p.packageName);
       }
+    });
+
+    test('validates unified ALLOWED_NOTIFICATION_PACKAGES and isAllowedNotificationPackage', () => {
+      assert.ok(Array.isArray(ALLOWED_NOTIFICATION_PACKAGES));
+      assert.ok(ALLOWED_NOTIFICATION_PACKAGES.length >= 38);
+
+      // Verify essential UPI and banking packages are included
+      assert.equal(isAllowedNotificationPackage('com.phonepe.app'), true);
+      assert.equal(isAllowedNotificationPackage('com.google.android.apps.nbu.paisa.user'), true);
+      assert.equal(isAllowedNotificationPackage('net.one97.paytm'), true);
+      assert.equal(isAllowedNotificationPackage('com.google.android.apps.messaging'), true);
+      assert.equal(isAllowedNotificationPackage('com.sbi.lotusintouch'), true);
+
+      // Case-insensitivity and trim handling
+      assert.equal(isAllowedNotificationPackage('  COM.PHONEPE.APP  '), true);
+
+      // Rejects spoofed or unlisted apps
+      assert.equal(isAllowedNotificationPackage('com.attacker.fake.app'), false);
+      assert.equal(isAllowedNotificationPackage(''), false);
+      assert.equal(isAllowedNotificationPackage(null), false);
+      assert.equal(isAllowedNotificationPackage(undefined), false);
     });
   });
 

@@ -8,6 +8,13 @@ async function executeCleanReset() {
   console.log('🛡️ EXECUTING ZERO-CUSTOMER CLEAN RESET ON DEV AND PROD');
   console.log('============================================================');
 
+  const isConfirmed = process.argv.includes('--confirm-clean-customer-reset') || process.env.ALLOW_CUSTOMER_RESET === 'true';
+  if (!isConfirmed) {
+    console.error('\n❌ [SAFETY ABORT] Clean customer database reset requires explicit confirmation.');
+    console.error('To proceed, re-run with `--confirm-clean-customer-reset` or set `ALLOW_CUSTOMER_RESET=true`.\n');
+    process.exit(1);
+  }
+
   // --- 1. PRODUCTION RESET ---
   const prodPath = path.resolve('data/youpi_pg.sqlite');
   console.log('\n[1] Processing Production Database:', prodPath);
@@ -17,10 +24,17 @@ async function executeCleanReset() {
     fs.mkdirSync(prodBackupDir, { recursive: true });
   }
   const prodBackupPath = path.join(prodBackupDir, `prod_pre_auth_reset_${Date.now()}.sqlite`);
-  fs.copyFileSync(prodPath, prodBackupPath);
-  console.log('  [✓] Created production backup at:', prodBackupPath);
-
   const prodDb = new Database({ dbPath: prodPath });
+
+  try {
+    prodDb.execute('VACUUM INTO ?', [prodBackupPath]);
+    console.log('  [✓] Created WAL-consistent atomic production backup at:', prodBackupPath);
+  } catch (err) {
+    console.warn('  [!] VACUUM INTO failed, falling back to copyFileSync:', err.message);
+    if (fs.existsSync(prodPath)) {
+      fs.copyFileSync(prodPath, prodBackupPath);
+    }
+  }
   const prodMerchantsBefore = prodDb.query('SELECT count(*) as c FROM merchants')[0].c;
   const prodAccountsBefore = prodDb.query('SELECT count(*) as c FROM payment_receiving_accounts')[0].c;
 

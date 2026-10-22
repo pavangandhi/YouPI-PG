@@ -84,10 +84,10 @@ export class AndroidObserverDriver {
       observedAt: (obs.observedAt instanceof Date ? obs.observedAt : new Date(obs.observedAt || Date.now())).toISOString(),
       bankReferenceNumber: obs.utr,
       senderVpa: obs.senderVpa,
-      rawNotification: {
-        title: 'Payment Received',
+      rawNotification: obs.rawNotification !== undefined ? obs.rawNotification : {
+        title: obs.notificationTitle || 'Payment Received',
         text: obs.notificationText || `Received Rs ${obs.amount} via UPI`,
-        package: 'com.phonepe.app'
+        package: obs.package !== undefined ? obs.package : 'com.phonepe.app'
       }
     };
 

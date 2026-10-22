@@ -69,3 +69,7 @@ TRACKER.md
 /*.jpeg
 /*.mp4
 /*.webm
+
+# Android / Gradle build output
+.gradle/
+build/

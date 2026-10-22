@@ -28,15 +28,52 @@ export class WebhookEngine {
       return { delivered: false, deliveryId: '', error: 'No webhook URL configured for merchant.' };
     }
 
-    // Re-validate at dispatch time, not only on write: a URL persisted before validation
-    // existed must not be usable to reach loopback/private addresses (SSRF).
-    const endpointCheck = validateOutboundWebhookUrl(merchant.webhookUrl);
-    if (!endpointCheck.valid) {
-      return { delivered: false, deliveryId: '', error: `Webhook delivery blocked: ${endpointCheck.error}` };
+    const publicOutcome = isTerminalStatus(event) ? toPublicOutcome(event) : event;
+    const nowIso = new Date().toISOString();
+
+    // 1. Up-front secret validation: if webhookSecret is missing, persist a failed row so it is auditable
+    if (!merchant.webhookSecret) {
+      const deliveryId = crypto.randomUUID();
+      this.db.execute(`
+        INSERT INTO webhook_deliveries (
+          id, merchant_id, payment_id, event_type, payload, endpoint_url,
+          response_status, response_body, attempt_count, is_successful, next_retry_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 500, 'Merchant webhookSecret is not configured.', 1, 0, NULL, ?)
+      `, [
+        deliveryId,
+        merchant.id,
+        session.id,
+        publicOutcome,
+        JSON.stringify({ error: 'Missing webhookSecret', paymentId: session.id, orderId: session.orderId }),
+        merchant.webhookUrl,
+        nowIso
+      ]);
+      return { delivered: false, deliveryId, status: 500, error: 'Merchant webhookSecret is not configured.' };
     }
 
-    const publicOutcome = isTerminalStatus(event) ? toPublicOutcome(event) : event;
+    // 2. Re-validate at dispatch time (SSRF guard)
+    const endpointCheck = validateOutboundWebhookUrl(merchant.webhookUrl);
+    if (!endpointCheck.valid) {
+      const deliveryId = crypto.randomUUID();
+      this.db.execute(`
+        INSERT INTO webhook_deliveries (
+          id, merchant_id, payment_id, event_type, payload, endpoint_url,
+          response_status, response_body, attempt_count, is_successful, next_retry_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 400, ?, 1, 0, NULL, ?)
+      `, [
+        deliveryId,
+        merchant.id,
+        session.id,
+        publicOutcome,
+        JSON.stringify({ error: 'SSRF blocked', paymentId: session.id, orderId: session.orderId }),
+        merchant.webhookUrl,
+        `Webhook delivery blocked: ${endpointCheck.error}`,
+        nowIso
+      ]);
+      return { delivered: false, deliveryId, status: 400, error: `Webhook delivery blocked: ${endpointCheck.error}` };
+    }
 
+    // 3. Resolve UTR / bank reference number if attributed
     // The bank reference (UTR/RRN) lives on the attributed observation, not on the
     // session row. Merchants need it to reconcile a webhook against their bank
     // statement, and it is part of the documented webhook contract.
@@ -51,10 +88,17 @@ export class WebhookEngine {
       } catch {}
     }
 
+    const deliveryId = crypto.randomUUID();
+    const timestampNum = Date.now();
+    const timestamp = timestampNum.toString();
+
     const payloadObj = {
       event: publicOutcome,
+      deliveryId,
+      timestamp: timestampNum,
       paymentId: session.id,
       orderId: session.orderId,
+      attemptId: session.attemptId || session.id,
       amount: toRupeesString(session.amountPaise),
       amountPaise: Number(session.amountPaise),
       currency: session.currency || 'INR',
@@ -68,13 +112,13 @@ export class WebhookEngine {
 
     const payloadString = JSON.stringify(payloadObj);
     const signature = generateHmac(payloadString, merchant.webhookSecret);
-    const deliveryId = crypto.randomUUID();
-    const timestamp = Date.now().toString();
+    const timestampedSignature = generateHmac(`${timestamp}.${payloadString}`, merchant.webhookSecret);
 
     const headers = {
       'Content-Type': 'application/json',
       'X-Gateway-Event': publicOutcome,
       'X-Gateway-Signature': `sha256=${signature}`,
+      'X-Gateway-Signature-V2': `sha256=${timestampedSignature}`,
       'X-Gateway-Delivery-Id': deliveryId,
       'X-Gateway-Timestamp': timestamp
     };
@@ -88,7 +132,7 @@ export class WebhookEngine {
         method: 'POST',
         headers,
         body: payloadString,
-        // Never follow redirects: a public URL could otherwise 302 into the internal network.
+        // Never follow redirects: a public URL could otherwise 302 into internal network (SSRF)
         redirect: 'manual',
         signal: AbortSignal.timeout(10000) // 10s timeout
       });
@@ -101,7 +145,6 @@ export class WebhookEngine {
     }
 
     // Persist delivery record in webhook_deliveries
-    const nowIso = new Date().toISOString();
     const nextRetryAt = isSuccessful
       ? null
       : new Date(Date.now() + 5000).toISOString(); // initial 5s backoff
@@ -134,30 +177,82 @@ export class WebhookEngine {
   }
 
   /**
-   * Retries overdue pending webhook deliveries with exponential backoff.
+   * Retries overdue pending webhook deliveries with atomic claim & exponential backoff.
    * Backoff strategy: 5s, 30s, 2m, 10m, 1h
    */
   async retryPending() {
     const nowIso = new Date().toISOString();
-    const pending = this.db.query(`
-      SELECT * FROM webhook_deliveries
-      WHERE is_successful = 0 AND attempt_count < ? AND next_retry_at <= ?
-      LIMIT 20
-    `, [this.maxRetries, nowIso]);
+
+    // Invariant: Atomically claim overdue pending deliveries in a transaction to prevent duplicate dispatches
+    const claimed = this.db.transaction(() => {
+      const pending = this.db.query(`
+        SELECT id, merchant_id, payment_id, event_type, payload, endpoint_url, attempt_count
+        FROM webhook_deliveries
+        WHERE is_successful = 0 AND attempt_count < ? AND next_retry_at <= ?
+        LIMIT 20
+      `, [this.maxRetries, nowIso]);
+
+      if (pending.length === 0) return [];
+
+      // Lock claimed items by setting next_retry_at 60 seconds into the future
+      const claimLockIso = new Date(Date.now() + 60000).toISOString();
+      for (const item of pending) {
+        this.db.execute(`
+          UPDATE webhook_deliveries
+          SET next_retry_at = ?, attempt_count = attempt_count + 1
+          WHERE id = ?
+        `, [claimLockIso, item.id]);
+      }
+
+      return pending;
+    });
+
+    if (claimed.length === 0) return [];
 
     const results = [];
     const backoffs = [5000, 30000, 120000, 600000, 3600000];
 
-    for (const item of pending) {
+    for (const item of claimed) {
       const merchant = this.merchantRepo.findById(item.merchant_id);
-      if (!merchant || !item.endpoint_url) continue;
+      if (!merchant || !merchant.webhookSecret || !item.endpoint_url) {
+        this.db.execute(`
+          UPDATE webhook_deliveries
+          SET is_successful = 0, next_retry_at = NULL, response_body = 'Missing merchant or webhookSecret'
+          WHERE id = ?
+        `, [item.id]);
+        continue;
+      }
 
       // Re-validate the stored endpoint before every retry (SSRF guard).
       const retryEndpoint = validateOutboundWebhookUrl(item.endpoint_url);
-      if (!retryEndpoint.valid) continue;
+      if (!retryEndpoint.valid) {
+        this.db.execute(`
+          UPDATE webhook_deliveries
+          SET is_successful = 0, next_retry_at = NULL, response_body = ?
+          WHERE id = ?
+        `, [`SSRF blocked: ${retryEndpoint.error}`, item.id]);
+        continue;
+      }
 
+      // The retry resends the ORIGINAL body byte for byte, so the headers must describe
+      // that same body. Recomputing a fresh timestamp here would make the header disagree
+      // with the timestamp embedded in the payload, and the merchant's verification (which
+      // cross-checks the two) would reject every retry.
+      let storedTimestamp = null;
+      let storedDeliveryId = item.id;
+      try {
+        const storedPayload = JSON.parse(item.payload);
+        if (storedPayload && storedPayload.timestamp !== undefined && storedPayload.timestamp !== null) {
+          storedTimestamp = String(storedPayload.timestamp);
+        }
+        if (storedPayload && storedPayload.deliveryId) {
+          storedDeliveryId = String(storedPayload.deliveryId);
+        }
+      } catch {}
+
+      const timestamp = storedTimestamp || Date.now().toString();
       const signature = generateHmac(item.payload, merchant.webhookSecret);
-      const timestamp = Date.now().toString();
+      const timestampedSignature = generateHmac(`${timestamp}.${item.payload}`, merchant.webhookSecret);
 
       let isSuccess = false;
       let respStatus = null;
@@ -170,7 +265,8 @@ export class WebhookEngine {
             'Content-Type': 'application/json',
             'X-Gateway-Event': item.event_type,
             'X-Gateway-Signature': `sha256=${signature}`,
-            'X-Gateway-Delivery-Id': item.id,
+            'X-Gateway-Signature-V2': `sha256=${timestampedSignature}`,
+            'X-Gateway-Delivery-Id': storedDeliveryId,
             'X-Gateway-Timestamp': timestamp
           },
           body: item.payload,
@@ -184,7 +280,7 @@ export class WebhookEngine {
         respBody = err.message;
       }
 
-      const nextAttempt = item.attempt_count + 1;
+      const nextAttempt = item.attempt_count + 1; // item.attempt_count was already incremented during claim
       const nextRetryDelay = backoffs[Math.min(nextAttempt - 1, backoffs.length - 1)];
       const nextRetryAt = isSuccess || nextAttempt >= this.maxRetries
         ? null
@@ -192,10 +288,9 @@ export class WebhookEngine {
 
       this.db.execute(`
         UPDATE webhook_deliveries
-        SET attempt_count = ?, is_successful = ?, response_status = ?,
-            response_body = ?, next_retry_at = ?
+        SET is_successful = ?, response_status = ?, response_body = ?, next_retry_at = ?
         WHERE id = ?
-      `, [nextAttempt, isSuccess ? 1 : 0, respStatus, respBody, nextRetryAt, item.id]);
+      `, [isSuccess ? 1 : 0, respStatus, respBody, nextRetryAt, item.id]);
 
       results.push({ id: item.id, success: isSuccess, attempt: nextAttempt });
     }

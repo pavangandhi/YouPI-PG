@@ -4,180 +4,225 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Merchant Portal & Control Hub — YOUPI PG</title>
+  <title>Merchant & Supervisor Hub - YOUPI PG</title>
+  <script>
+    /* Apply saved theme pref (system | light | dark) before first paint to avoid a flash. */
+    (function () {
+      var p = 'system';
+      try { var v = localStorage.getItem('youpi-theme'); if (v === 'light' || v === 'dark') p = v; } catch (e) {}
+      var dark = p === 'dark' || (p === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    })();
+  </script>
   <style>
+    /* YOUPI Merchant & Supervisor Hub
+       Direction: a payments ledger. Cool stone neutrals, one emerald accent,
+       Sora for display (brand, headings, figures), DM Sans for UI text, both self-hosted
+       from /fonts because the CSP is style-src 'self'. Icons: Heroicons outline sprite.
+       One radius scale (6 controls / 10 surfaces / 4 tags). */
+    @font-face {
+      font-family: "DM Sans";
+      src: url("/fonts/dm-sans.woff2") format("woff2");
+      font-weight: 100 1000;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: "Sora";
+      src: url("/fonts/sora.woff2") format("woff2");
+      font-weight: 100 800;
+      font-display: swap;
+    }
+
     :root,
     [data-theme="light"] {
       --theme: light;
-      --bg: #f8fafc;
-      --bg-header: #ffffff;
-      --bg-nav: #ffffff;
-      --bg-subnav: #f1f5f9;
-      --bg-card: #ffffff;
-      --bg-surface: #f8fafc;
-      --bg-box: #ffffff;
-      --bg-elevated: #f1f5f9;
-      --bg-slot: #ffffff;
-      --bg-table-th: #f8fafc;
+      --font-ui: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-display: "Sora", "DM Sans", system-ui, sans-serif;
+      --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+      --r-ctl: 6px;
+      --r-surf: 10px;
+      --r-tag: 4px;
+
+      --bg: #eef0ee;
+      --bg-header: #12201c;
+      --bg-nav: #f7f8f6;
+      --bg-subnav: #eef0ee;
+      --bg-card: #fbfcfb;
+      --bg-surface: #f2f4f1;
+      --bg-box: #fbfcfb;
+      --bg-elevated: #e8ebe7;
+      --bg-slot: #fbfcfb;
+      --bg-table-th: #f2f4f1;
       --bg-input: #ffffff;
 
-      --border: #e2e8f0;
-      --border-focus: #2563eb;
-      --border-subtle: #edf2f7;
-      --border-hover: #cbd5e1;
+      --border: #d9ddd7;
+      --border-focus: #0f766e;
+      --border-subtle: #e4e7e2;
+      --border-hover: #b8beb5;
 
-      --text: #0f172a;
-      --text-muted: #64748b;
-      --text-dim: #94a3b8;
-      --text-heading: #0f172a;
+      --text: #1b2421;
+      --text-muted: #55625d;
+      --text-dim: #66726c;
+      --text-heading: #101a17;
 
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --primary-glow: rgba(37, 99, 235, 0.2);
-      --primary-light: rgba(37, 99, 235, 0.08);
+      --primary: #0f766e;
+      --primary-hover: #0b5f58;
+      --primary-glow: rgba(15, 118, 110, 0.18);
+      --primary-light: rgba(15, 118, 110, 0.07);
 
-      --success: #059669;
-      --success-glow: rgba(5, 150, 105, 0.2);
-      --danger: #dc2626;
-      --danger-glow: rgba(220, 38, 38, 0.2);
-      --warning: #d97706;
-      --warning-glow: rgba(217, 119, 6, 0.2);
-      --info: #0284c7;
-      --info-glow: rgba(2, 132, 199, 0.2);
+      --success: #15803d;
+      --success-glow: rgba(21, 128, 61, 0.18);
+      --danger: #b91c1c;
+      --danger-glow: rgba(185, 28, 28, 0.18);
+      --warning: #b45309;
+      --warning-bg: rgba(180, 83, 9, 0.07);
+      --warning-glow: rgba(180, 83, 9, 0.18);
+      --info: #0369a1;
+      --info-glow: rgba(3, 105, 161, 0.18);
 
-      --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
-      --card-shadow-hover: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+      --card-shadow: 0 1px 0 rgba(16, 26, 23, 0.04);
+      --card-shadow-hover: 0 6px 18px -8px rgba(16, 26, 23, 0.18);
 
-      --badge-success-bg: #ecfdf5;
-      --badge-success-text: #065f46;
-      --badge-success-border: #a7f3d0;
-      --badge-danger-bg: #fef2f2;
+      --badge-success-bg: #e6f4ea;
+      --badge-success-text: #166534;
+      --badge-success-border: #b7dfc3;
+      --badge-danger-bg: #fbe9e7;
       --badge-danger-text: #991b1b;
-      --badge-danger-border: #fecaca;
-      --badge-warning-bg: #fffbeb;
-      --badge-warning-text: #92400e;
-      --badge-warning-border: #fde68a;
-      --badge-info-bg: #eff6ff;
-      --badge-info-text: #1e40af;
-      --badge-info-border: #bfdbfe;
-      --badge-neutral-bg: #f1f5f9;
-      --badge-neutral-text: #475569;
-      --badge-neutral-border: #e2e8f0;
+      --badge-danger-border: #f0bdb7;
+      --badge-warning-bg: #fbf0dc;
+      --badge-warning-text: #8a4208;
+      --badge-warning-border: #ecd19b;
+      --badge-info-bg: #e3f0f7;
+      --badge-info-text: #075985;
+      --badge-info-border: #b5d5e6;
+      --badge-neutral-bg: #e8ebe7;
+      --badge-neutral-text: #46524d;
+      --badge-neutral-border: #d2d7d0;
 
-      --btn-sec-bg: #ffffff;
-      --btn-sec-text: #334155;
-      --btn-sec-border: #cbd5e1;
-      --btn-sec-hover-bg: #f1f5f9;
-      --btn-sec-hover-text: #0f172a;
+      --btn-sec-bg: #fbfcfb;
+      --btn-sec-text: #28332f;
+      --btn-sec-border: #c9cec7;
+      --btn-sec-hover-bg: #eef0ee;
+      --btn-sec-hover-text: #101a17;
 
-      --tr-hover: #f8fafc;
-      --focus-ring: rgba(37, 99, 235, 0.15);
+      --tr-hover: #f2f4f1;
+      --focus-ring: rgba(15, 118, 110, 0.22);
 
-      --kpi-vol-color: #059669;
-      --kpi-success-color: #2563eb;
-      --kpi-queue-color: #d97706;
-      --kpi-pending-color: #dc2626;
+      --kpi-vol-color: #0f766e;
+      --kpi-success-color: #1b2421;
+      --kpi-queue-color: #b45309;
+      --kpi-pending-color: #b91c1c;
 
-      --header-bg: #ffffff;
-      --header-border: #e2e8f0;
-      --header-title: #0f172a;
-      --nav-bg: #ffffff;
-      --nav-border: #e2e8f0;
-      --subnav-bg: #f8fafc;
-      --subnav-border: #e2e8f0;
-      --pill-bg: #ffffff;
-      --pill-text: #475569;
-      --pill-border: #cbd5e1;
+      --header-bg: #12201c;
+      --header-border: #12201c;
+      --header-title: #f1f5f2;
+      --nav-bg: #f7f8f6;
+      --nav-border: #d9ddd7;
+      --subnav-bg: #eef0ee;
+      --subnav-border: #d9ddd7;
+      --pill-bg: transparent;
+      --pill-text: #55625d;
+      --pill-border: transparent;
     }
 
     [data-theme="dark"] {
       --theme: dark;
-      --bg: #090d16;
-      --bg-header: #070a12;
-      --bg-nav: #0b1120;
-      --bg-subnav: rgba(15, 23, 42, 0.85);
-      --bg-card: #0f172a;
-      --bg-surface: #131d35;
-      --bg-box: #0b1120;
-      --bg-elevated: #1e293b;
-      --bg-slot: #070c17;
-      --bg-table-th: #070c17;
-      --bg-input: #090d16;
 
-      --border: #1e293b;
-      --border-focus: #38bdf8;
-      --border-subtle: rgba(255, 255, 255, 0.08);
-      --border-hover: #334155;
+      --bg: #0b0f0e;
+      --bg-header: #070a09;
+      --bg-nav: #0f1514;
+      --bg-subnav: #0b0f0e;
+      --bg-card: #121917;
+      --bg-surface: #172120;
+      --bg-box: #0f1514;
+      --bg-elevated: #1d2927;
+      --bg-slot: #0f1514;
+      --bg-table-th: #0f1514;
+      --bg-input: #0b0f0e;
 
-      --text: #f8fafc;
-      --text-muted: #94a3b8;
-      --text-dim: #64748b;
-      --text-heading: #ffffff;
+      --border: #243230;
+      --border-focus: #2dd4bf;
+      --border-subtle: rgba(255, 255, 255, 0.07);
+      --border-hover: #364643;
 
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --primary-glow: rgba(37, 99, 235, 0.25);
-      --primary-light: rgba(56, 189, 248, 0.08);
+      --text: #e6ece9;
+      --text-muted: #94a39e;
+      --text-dim: #8a9a94;
+      --text-heading: #f4f8f6;
 
-      --success: #10b981;
-      --success-glow: rgba(16, 185, 129, 0.2);
-      --danger: #ef4444;
-      --danger-glow: rgba(239, 68, 68, 0.2);
-      --warning: #f59e0b;
-      --warning-glow: rgba(245, 158, 11, 0.2);
-      --info: #38bdf8;
-      --info-glow: rgba(56, 189, 248, 0.2);
+      --primary: #14b8a6;
+      --primary-hover: #2dd4bf;
+      --primary-glow: rgba(45, 212, 191, 0.2);
+      --primary-light: rgba(45, 212, 191, 0.08);
 
-      --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.5);
-      --card-shadow-hover: 0 14px 28px rgba(0, 0, 0, 0.65);
+      --success: #4ade80;
+      --success-glow: rgba(74, 222, 128, 0.18);
+      --danger: #f87171;
+      --danger-glow: rgba(248, 113, 113, 0.18);
+      --warning: #fbbf24;
+      --warning-bg: rgba(251, 191, 36, 0.08);
+      --warning-glow: rgba(251, 191, 36, 0.18);
+      --info: #7dd3fc;
+      --info-glow: rgba(125, 211, 252, 0.18);
 
-      --badge-success-bg: rgba(16, 185, 129, 0.18);
-      --badge-success-text: #34d399;
-      --badge-success-border: rgba(16, 185, 129, 0.35);
-      --badge-danger-bg: rgba(239, 68, 68, 0.18);
-      --badge-danger-text: #f87171;
-      --badge-danger-border: rgba(239, 68, 68, 0.35);
-      --badge-warning-bg: rgba(245, 158, 11, 0.18);
-      --badge-warning-text: #fbbf24;
-      --badge-warning-border: rgba(245, 158, 11, 0.35);
-      --badge-info-bg: rgba(56, 189, 248, 0.18);
-      --badge-info-text: #38bdf8;
-      --badge-info-border: rgba(56, 189, 248, 0.35);
-      --badge-neutral-bg: #1e293b;
-      --badge-neutral-text: #94a3b8;
-      --badge-neutral-border: #334155;
+      --card-shadow: none;
+      --card-shadow-hover: 0 8px 24px -10px rgba(0, 0, 0, 0.7);
 
-      --btn-sec-bg: #1e293b;
-      --btn-sec-text: #e2e8f0;
-      --btn-sec-border: #334155;
-      --btn-sec-hover-bg: #334155;
+      --badge-success-bg: rgba(74, 222, 128, 0.12);
+      --badge-success-text: #86efac;
+      --badge-success-border: rgba(74, 222, 128, 0.3);
+      --badge-danger-bg: rgba(248, 113, 113, 0.12);
+      --badge-danger-text: #fca5a5;
+      --badge-danger-border: rgba(248, 113, 113, 0.3);
+      --badge-warning-bg: rgba(251, 191, 36, 0.12);
+      --badge-warning-text: #fcd34d;
+      --badge-warning-border: rgba(251, 191, 36, 0.3);
+      --badge-info-bg: rgba(125, 211, 252, 0.12);
+      --badge-info-text: #bae6fd;
+      --badge-info-border: rgba(125, 211, 252, 0.3);
+      --badge-neutral-bg: #1d2927;
+      --badge-neutral-text: #a5b3ae;
+      --badge-neutral-border: #2e3d3a;
+
+      --btn-sec-bg: #172120;
+      --btn-sec-text: #d6dfdb;
+      --btn-sec-border: #2e3d3a;
+      --btn-sec-hover-bg: #1f2d2b;
       --btn-sec-hover-text: #ffffff;
 
-      --tr-hover: rgba(255, 255, 255, 0.02);
-      --focus-ring: rgba(56, 189, 248, 0.2);
+      --tr-hover: rgba(255, 255, 255, 0.025);
+      --focus-ring: rgba(45, 212, 191, 0.25);
 
-      --kpi-vol-color: #34d399;
-      --kpi-success-color: #38bdf8;
+      --kpi-vol-color: #2dd4bf;
+      --kpi-success-color: #e6ece9;
       --kpi-queue-color: #fbbf24;
       --kpi-pending-color: #f87171;
 
-      --header-bg: #070a12;
-      --header-border: var(--border);
-      --header-title: #ffffff;
-      --nav-bg: #0b1120;
-      --nav-border: var(--border);
-      --subnav-bg: rgba(15, 23, 42, 0.7);
-      --subnav-border: var(--border);
-      --pill-bg: #090d16;
-      --pill-text: var(--text-muted);
-      --pill-border: var(--border);
+      --header-bg: #070a09;
+      --header-border: #1a2523;
+      --header-title: #f4f8f6;
+      --nav-bg: #0f1514;
+      --nav-border: #1a2523;
+      --subnav-bg: #0b0f0e;
+      --subnav-border: #1a2523;
+      --pill-bg: transparent;
+      --pill-text: #94a39e;
+      --pill-border: transparent;
     }
 
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: var(--font-ui);
+    }
+
+    code,
+    pre,
+    kbd,
+    samp {
+      font-family: var(--font-mono);
     }
 
     body,
@@ -194,102 +239,101 @@
     .sub-nav-pill,
     .store-switch-badge,
     .settings-group-box,
-    .slot-card,
-    .theme-mode-pill {
-      transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+    .slot-card {
+      transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
     body {
       background: var(--bg);
       color: var(--text);
-      min-height: 100vh;
+      min-height: 100dvh;
       display: flex;
       flex-direction: column;
       overflow-x: hidden;
+      font-size: 15px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* Top Sticky Header */
+    /* Header: always an ink bar, in both themes, so the brand reads the same everywhere */
     header {
       background: var(--header-bg);
       border-bottom: 1px solid var(--header-border);
-      padding: 0.85rem 1.75rem;
+      padding: 0 1.75rem;
+      min-height: 60px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
       position: sticky;
       top: 0;
       z-index: 1000;
-      backdrop-filter: blur(12px);
+    }
+
+    header .badge-info,
+    header .store-switch-badge:not(.is-online):not(.is-offline) {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.14);
+      color: #d9e4df;
+    }
+
+    header>.header-quick-stats>div[onclick] {
+      background: rgba(255, 255, 255, 0.06) !important;
+      border-color: rgba(255, 255, 255, 0.14) !important;
+    }
+
+    header>.header-quick-stats>div[onclick]>span:first-child {
+      color: #9fb2ab !important;
     }
 
     .brand-group {
       display: flex;
       align-items: center;
-      gap: 0.85rem;
+      gap: 0.9rem;
     }
 
     .brand-title {
-      font-size: 1.25rem;
-      font-weight: 900;
+      font-size: 1.1rem;
+      font-weight: 800;
       color: var(--header-title);
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      letter-spacing: -0.02em;
+      letter-spacing: 0.02em;
     }
 
     .brand-badge {
-      font-size: 0.72rem;
-      font-weight: 700;
+      font-size: 0.7rem;
+      font-weight: 600;
       padding: 0.2rem 0.55rem;
-      border-radius: 9999px;
-      background: var(--badge-info-bg);
-      color: var(--badge-info-text);
-      border: 1px solid var(--badge-info-border);
+      border-radius: var(--r-tag);
+      background: transparent;
+      color: #9fb2ab;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      letter-spacing: 0.06em;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
 
     .header-quick-stats {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.6rem;
       flex-wrap: wrap;
+      padding: 0.5rem 0;
     }
 
-    /* Real Light / Dark Mode Toggle Pill */
-    .theme-mode-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      padding: 0.35rem 0.75rem;
-      border-radius: 9999px;
-      font-size: 0.75rem;
-      font-weight: 700;
-      cursor: pointer;
-      border: 1px solid var(--border);
-      background: var(--bg-surface);
-      color: var(--text);
-      user-select: none;
-    }
 
-    .theme-mode-pill:hover {
-      border-color: var(--border-hover);
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
-      transform: translateY(-1px);
-    }
 
-    /* Store Port 5000 Switch Badge */
     .store-switch-badge {
       display: inline-flex;
       align-items: center;
       gap: 0.45rem;
-      padding: 0.35rem 0.75rem;
-      border-radius: 9999px;
+      padding: 0.3rem 0.65rem;
+      border-radius: var(--r-ctl);
       font-size: 0.75rem;
-      font-weight: 700;
+      font-weight: 600;
       cursor: pointer;
-      transition: all 0.2s;
       border: 1px solid var(--border);
       background: var(--bg-card);
       color: var(--text);
@@ -301,37 +345,35 @@
     }
 
     .store-switch-badge.is-online {
-      background: var(--badge-success-bg);
-      border-color: var(--badge-success-border);
-      color: var(--badge-success-text);
+      background: rgba(74, 222, 128, 0.14);
+      border-color: rgba(74, 222, 128, 0.4);
+      color: #86efac;
     }
 
     .store-switch-badge.is-offline {
-      background: var(--badge-danger-bg);
-      border-color: var(--badge-danger-border);
-      color: var(--badge-danger-text);
+      background: rgba(248, 113, 113, 0.14);
+      border-color: rgba(248, 113, 113, 0.4);
+      color: #fca5a5;
     }
 
-    /* Live Pulse */
     .live-pulse-badge {
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
-      background: var(--badge-success-bg);
-      border: 1px solid var(--badge-success-border);
-      color: var(--badge-success-text);
+      gap: 0.45rem;
+      background: transparent;
+      border: 1px solid rgba(74, 222, 128, 0.35);
+      color: #86efac;
       padding: 0.3rem 0.65rem;
-      border-radius: 9999px;
+      border-radius: var(--r-ctl);
       font-size: 0.73rem;
-      font-weight: 700;
+      font-weight: 600;
     }
 
     .pulse-dot {
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: #10b981;
-      box-shadow: 0 0 8px #10b981;
+      background: #4ade80;
       animation: pulseAnim 2s infinite ease-in-out;
     }
 
@@ -340,98 +382,186 @@
       0%,
       100% {
         opacity: 1;
-        transform: scale(1);
       }
 
       50% {
-        opacity: 0.4;
-        transform: scale(0.85);
+        opacity: 0.35;
       }
     }
 
-    /* Primary Navigation Bar (3 Sections) */
+    /* Primary navigation: flat tab strip, active tab marked by an accent bar */
     .main-nav-bar {
       background: var(--nav-bg);
       border-bottom: 1px solid var(--nav-border);
       display: flex;
-      gap: 0.5rem;
+      gap: 0.25rem;
       padding: 0 1.75rem;
       overflow-x: auto;
       position: sticky;
-      top: 57px;
+      top: 60px;
       z-index: 999;
     }
 
     .main-nav-btn {
-      padding: 0.95rem 1.4rem;
+      padding: 0.85rem 1.1rem;
       cursor: pointer;
       border: none;
       background: transparent;
-      font-weight: 800;
+      font-weight: 600;
       color: var(--text-muted);
-      border-bottom: 3px solid transparent;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
       white-space: nowrap;
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-      font-size: 0.92rem;
+      transition: color 0.15s ease, border-color 0.15s ease;
+      font-size: 0.9rem;
       display: flex;
       align-items: center;
-      gap: 0.6rem;
+      gap: 0.55rem;
     }
 
     .main-nav-btn:hover {
       color: var(--text);
-      background: var(--primary-light);
     }
 
     .main-nav-btn.active {
-      color: var(--primary);
+      color: var(--text-heading);
       border-bottom-color: var(--primary);
-      background: var(--primary-light);
+      background: transparent;
     }
 
-    [data-theme="dark"] .main-nav-btn.active {
-      color: #38bdf8;
-      border-bottom-color: #38bdf8;
-      background: rgba(56, 189, 248, 0.08);
+    .main-nav-btn:focus-visible,
+    .sub-nav-pill:focus-visible,
+    .btn:focus-visible {
+      outline: 2px solid var(--border-focus);
+      outline-offset: 2px;
     }
 
-    /* Secondary Sub-Nav Pills */
+    /* Secondary navigation: quiet segmented row */
     .sub-nav-bar {
       background: var(--subnav-bg);
       border-bottom: 1px solid var(--subnav-border);
       display: flex;
-      gap: 0.5rem;
-      padding: 0.65rem 1.75rem;
+      gap: 0.25rem;
+      padding: 0.5rem 1.75rem;
       overflow-x: auto;
     }
 
     .sub-nav-pill {
-      padding: 0.45rem 1rem;
+      padding: 0.38rem 0.8rem;
       cursor: pointer;
       border: 1px solid var(--pill-border);
       background: var(--pill-bg);
-      border-radius: 9999px;
-      font-weight: 700;
+      border-radius: var(--r-ctl);
+      font-weight: 600;
       color: var(--pill-text);
       white-space: nowrap;
-      transition: all 0.18s;
       font-size: 0.8rem;
       display: flex;
       align-items: center;
-      gap: 0.45rem;
+      gap: 0.4rem;
     }
 
     .sub-nav-pill:hover {
       color: var(--text);
-      border-color: var(--border-hover);
+      background: var(--bg-elevated);
     }
 
     .sub-nav-pill.active {
       color: #ffffff;
       background: var(--primary);
       border-color: var(--primary);
-      box-shadow: 0 2px 10px var(--primary-glow);
     }
+
+    [data-theme="dark"] .sub-nav-pill.active {
+      color: #04201c;
+    }
+
+
+
+    /* Theme switch (System / Light / Dark). Lives in the always-dark header. */
+    .theme-switch {
+      display: inline-flex;
+      gap: 2px;
+      padding: 2px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: var(--r-ctl);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .theme-switch button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.55rem;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: #9fb2ab;
+      font-size: 0.73rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .theme-switch button:hover {
+      color: #ffffff;
+    }
+
+    .theme-switch button.active {
+      background: rgba(255, 255, 255, 0.16);
+      color: #ffffff;
+    }
+
+    .theme-switch button:focus-visible {
+      outline: 2px solid #2dd4bf;
+      outline-offset: 1px;
+    }
+
+    /* Display face */
+    .brand-title,
+    .card-heading,
+    .kpi-value,
+    h1,
+    h2,
+    h3,
+    h4 {
+      font-family: var(--font-display);
+    }
+
+    .kpi-value {
+      font-family: var(--font-display);
+      letter-spacing: -0.02em;
+    }
+
+    /* Heroicons + status dots */
+    .i {
+      width: 1.15em;
+      height: 1.15em;
+      flex: none;
+      vertical-align: -0.2em;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .dot {
+      display: inline-block;
+      width: 0.6em;
+      height: 0.6em;
+      border-radius: 50%;
+      flex: none;
+      vertical-align: 0.02em;
+      background: currentColor;
+    }
+
+    .dot-red { background: #ef4444; }
+    .dot-green { background: #22c55e; }
+    .dot-yellow { background: #f59e0b; }
+    .dot-blue { background: #3b82f6; }
+    .dot-purple { background: #8b5cf6; }
+    .dot-black { background: #0f172a; box-shadow: 0 0 0 1px #64748b; }
+    .dot-off { background: transparent; box-shadow: inset 0 0 0 1.5px #94a3b8; }
 
     main {
       padding: 1.75rem;
@@ -441,52 +571,68 @@
       flex: 1;
     }
 
-    /* KPI Summary Row */
+    /* KPI row: one ruled strip, not four floating cards. Figures are mono + tabular. */
     .kpi-row {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-      gap: 1.1rem;
+      gap: 0;
       margin-bottom: 1.5rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-surf);
+      overflow: hidden;
     }
 
     .kpi-box {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 0.85rem;
-      padding: 1.25rem;
+      background: transparent;
+      border: none;
+      border-right: 1px solid var(--border);
+      border-radius: 0;
+      padding: 1.1rem 1.35rem;
       position: relative;
-      overflow: hidden;
-      box-shadow: var(--card-shadow);
-      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: none;
     }
 
-    .kpi-box:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--card-shadow-hover);
-      border-color: var(--border-hover);
+    .kpi-box:last-child {
+      border-right: none;
+    }
+
+    .kpi-box::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 1.1rem;
+      bottom: 1.1rem;
+      width: 3px;
+      background: var(--primary);
+      opacity: 0.85;
+      border-radius: 0 2px 2px 0;
     }
 
     .kpi-title {
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       color: var(--text-muted);
-      font-weight: 800;
+      font-weight: 600;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
     }
 
     .kpi-value {
-      font-size: 1.95rem;
-      font-weight: 900;
-      margin-top: 0.35rem;
-      letter-spacing: -0.02em;
+      font-family: var(--font-display);
+      font-variant-numeric: tabular-nums;
+      font-size: 1.85rem;
+      font-weight: 600;
+      margin-top: 0.3rem;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
     }
 
-    /* Cards */
+    /* Surfaces */
     .card {
       background: var(--bg-card);
       border: 1px solid var(--border);
-      border-radius: 0.85rem;
-      padding: 1.5rem;
+      border-radius: var(--r-surf);
+      padding: 1.4rem;
       margin-bottom: 1.5rem;
       box-shadow: var(--card-shadow);
     }
@@ -495,18 +641,21 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 1.25rem;
+      margin-bottom: 1.15rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border-subtle);
       flex-wrap: wrap;
       gap: 0.75rem;
     }
 
     .card-heading {
-      font-size: 1.12rem;
-      font-weight: 800;
+      font-size: 1.02rem;
+      font-weight: 700;
       color: var(--text-heading);
       display: flex;
       align-items: center;
-      gap: 0.6rem;
+      gap: 0.55rem;
+      letter-spacing: -0.005em;
     }
 
     .card-subtext {
@@ -514,38 +663,33 @@
       color: var(--text-muted);
       margin-top: 0.25rem;
       line-height: 1.5;
+      max-width: 70ch;
     }
 
-    /* Group Settings Box (Store Settings Panels) */
     .settings-group-box {
       background: var(--bg-surface);
       border: 1px solid var(--border);
-      border-radius: 0.75rem;
-      padding: 1.25rem;
-      margin-bottom: 1.25rem;
+      border-radius: var(--r-surf);
+      padding: 1.15rem;
+      margin-bottom: 1.15rem;
     }
 
     .group-box-title {
-      font-size: 0.8rem;
-      font-weight: 800;
+      font-size: 0.74rem;
+      font-weight: 700;
       text-transform: uppercase;
-      color: var(--primary);
-      letter-spacing: 0.05em;
-      margin-bottom: 1rem;
+      color: var(--text-muted);
+      letter-spacing: 0.06em;
+      margin-bottom: 0.9rem;
     }
 
-    [data-theme="dark"] .group-box-title {
-      color: #60a5fa;
-    }
-
-    /* Selling Mode Cards */
     .selling-mode-card {
       background: var(--bg-surface);
       border: 1px solid var(--border);
-      border-radius: 0.75rem;
-      padding: 1.25rem;
+      border-radius: var(--r-surf);
+      padding: 1.15rem;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
     }
 
     .selling-mode-card:hover {
@@ -553,54 +697,59 @@
     }
 
     .selling-mode-card.mode-selected-online {
-      border: 2px solid var(--primary);
+      border: 1.5px solid var(--primary);
       background: var(--primary-light);
     }
 
     .selling-mode-card.mode-selected-offline {
-      border: 2px solid var(--warning);
+      border: 1.5px solid var(--warning);
       background: var(--warning-bg);
     }
 
-    /* Tables */
+    /* Tables: header row quiet, rows separated by a single hairline */
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.88rem;
+      font-size: 0.87rem;
     }
 
     th {
       text-align: left;
-      padding: 0.75rem 1rem;
+      padding: 0.65rem 0.9rem;
       background: var(--bg-table-th);
       color: var(--text-muted);
-      font-weight: 800;
+      font-weight: 600;
       border-bottom: 1px solid var(--border);
       text-transform: uppercase;
-      font-size: 0.73rem;
-      letter-spacing: 0.05em;
+      font-size: 0.7rem;
+      letter-spacing: 0.06em;
     }
 
     td {
-      padding: 0.85rem 1rem;
-      border-bottom: 1px solid var(--border);
+      padding: 0.8rem 0.9rem;
+      border-bottom: 1px solid var(--border-subtle);
       color: var(--text);
       vertical-align: middle;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
     }
 
     tr:hover td {
       background: var(--tr-hover);
     }
 
-    /* Badges */
+    /* Tags (status) */
     .badge {
       display: inline-flex;
       align-items: center;
       gap: 0.35rem;
-      padding: 0.25rem 0.6rem;
-      border-radius: 9999px;
-      font-size: 0.75rem;
-      font-weight: 700;
+      padding: 0.2rem 0.5rem;
+      border-radius: var(--r-tag);
+      font-size: 0.73rem;
+      font-weight: 600;
+      line-height: 1.3;
     }
 
     .badge-success {
@@ -630,56 +779,62 @@
     .badge-neutral {
       background: var(--badge-neutral-bg);
       color: var(--badge-neutral-text);
-      border: 1px solid var(--border);
+      border: 1px solid var(--badge-neutral-border);
     }
 
     /* Buttons */
     .btn {
-      padding: 0.52rem 1.05rem;
-      border-radius: 0.5rem;
+      padding: 0.5rem 0.95rem;
+      border-radius: var(--r-ctl);
       border: 1px solid transparent;
-      font-weight: 700;
+      font-weight: 600;
       cursor: pointer;
-      font-size: 0.85rem;
+      font-size: 0.84rem;
       display: inline-flex;
       align-items: center;
       gap: 0.45rem;
       text-decoration: none;
-      transition: all 0.18s ease-in-out;
+      transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
       user-select: none;
     }
 
+    .btn:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
     .btn-primary {
-      background: #2563eb;
-      color: #fff;
-      border-color: #3b82f6;
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
     }
 
     .btn-primary:hover {
-      background: #1d4ed8;
-      box-shadow: 0 4px 14px var(--primary-glow);
+      background: var(--primary-hover);
+      border-color: var(--primary-hover);
+    }
+
+    [data-theme="dark"] .btn-primary {
+      color: #04201c;
     }
 
     .btn-success {
-      background: #059669;
-      color: #fff;
-      border-color: #10b981;
+      background: #15803d;
+      color: #ffffff;
+      border-color: #15803d;
     }
 
     .btn-success:hover {
-      background: #047857;
-      box-shadow: 0 4px 14px var(--success-glow);
+      background: #166534;
     }
 
     .btn-danger {
-      background: #dc2626;
-      color: #fff;
-      border-color: #ef4444;
+      background: #b91c1c;
+      color: #ffffff;
+      border-color: #b91c1c;
     }
 
     .btn-danger:hover {
-      background: #b91c1c;
-      box-shadow: 0 4px 14px var(--danger-glow);
+      background: #991b1b;
     }
 
     .btn-secondary {
@@ -694,7 +849,7 @@
     }
 
     .btn:disabled {
-      opacity: 0.55;
+      opacity: 0.5;
       cursor: not-allowed;
     }
 
@@ -705,12 +860,16 @@
     textarea,
     select {
       background: var(--bg-input);
-      border: 1px solid var(--border);
-      border-radius: 0.5rem;
+      border: 1px solid var(--border-hover);
+      border-radius: var(--r-ctl);
       color: var(--text);
       font-size: 0.88rem;
-      padding: 0.65rem 0.85rem;
-      transition: border-color 0.2s, box-shadow 0.2s, background-color 0.25s;
+      padding: 0.6rem 0.8rem;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+      color: var(--text-dim);
     }
 
     input[type="text"]:focus,
@@ -723,99 +882,101 @@
       box-shadow: 0 0 0 3px var(--focus-ring);
     }
 
-    /* Terminal Console */
+    /* Terminal */
     .terminal-container {
-      background: #020617;
-      border: 1px solid #1e293b;
-      border-radius: 0.75rem;
+      background: #060908;
+      border: 1px solid #1a2523;
+      border-radius: var(--r-surf);
       height: 380px;
       overflow-y: auto;
       padding: 1rem;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 0.8rem;
-      line-height: 1.6;
-      color: #a5f3fc;
-      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+      font-family: var(--font-mono);
+      font-size: 0.79rem;
+      line-height: 1.65;
+      color: #b6c9c2;
     }
 
     .log-line {
-      margin-bottom: 0.2rem;
+      margin-bottom: 0.15rem;
       word-break: break-all;
+      font-family: var(--font-mono);
     }
 
     .log-ts {
-      color: #64748b;
+      color: #62736d;
       margin-right: 0.5rem;
     }
 
     .log-svc {
-      color: #38bdf8;
-      font-weight: 700;
+      color: #2dd4bf;
+      font-weight: 600;
       margin-right: 0.5rem;
     }
 
     .log-stderr {
-      color: #f87171;
+      color: #fca5a5;
     }
 
     .log-system {
-      color: #a3e635;
-      font-style: italic;
+      color: #bef264;
     }
 
-    /* Slots Grid */
+    /* Slots */
     .queue-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 1.25rem;
+      gap: 1rem;
       margin-bottom: 1.5rem;
     }
 
     .slot-card {
-      border: 2px dashed var(--border);
-      border-radius: 0.75rem;
-      padding: 1.25rem;
+      border: 1px dashed var(--border-hover);
+      border-radius: var(--r-surf);
+      padding: 1.15rem;
       background: var(--bg-slot);
       text-align: center;
     }
 
     .slot-card.busy-active {
+      border-style: solid;
       border-color: var(--primary);
       background: var(--primary-light);
     }
 
     .slot-card.busy-proc {
+      border-style: solid;
       border-color: var(--warning);
       background: var(--warning-bg);
     }
 
-    /* Modals & Popups */
+    /* Modals */
     .modal-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.75);
+      background: rgba(7, 10, 9, 0.7);
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 1rem;
       z-index: 10000;
-      backdrop-filter: blur(4px);
+      backdrop-filter: blur(3px);
     }
 
     .modal-box {
       background: var(--bg-card);
       max-width: 520px;
       width: 100%;
-      border-radius: 1rem;
-      padding: 1.75rem;
+      border-radius: var(--r-surf);
+      padding: 1.6rem;
       border: 1px solid var(--border);
+      box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.5);
     }
 
     [hidden] {
       display: none !important;
     }
 
-    /* Global Cashier Floating Dock */
+    /* Cashier dock: incoming counter payments */
     .cashier-floating-dock {
       position: fixed;
       bottom: 24px;
@@ -832,32 +993,32 @@
     .cashier-modal-card {
       pointer-events: auto;
       width: 350px;
+      max-width: 100%;
       background: var(--bg-card);
-      border: 2px solid #22c55e;
-      border-radius: 12px;
-      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.3), 0 0 18px rgba(34, 197, 94, 0.25);
+      border: 1px solid var(--border-hover);
+      border-top: 3px solid var(--success);
+      border-radius: var(--r-surf);
+      box-shadow: 0 18px 44px -14px rgba(0, 0, 0, 0.45);
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-      animation: cashierSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      animation: cashierSlideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     @keyframes cashierSlideUp {
       from {
         opacity: 0;
-        transform: translateY(20px) scale(0.95);
+        transform: translateY(16px);
       }
 
       to {
         opacity: 1;
-        transform: translateY(0) scale(1);
+        transform: translateY(0);
       }
     }
 
     .cashier-modal-card.is-card-terminal {
-      border-color: #38bdf8;
-      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.3), 0 0 18px rgba(56, 189, 248, 0.25);
+      border-top-color: var(--info);
     }
 
     .cashier-modal-header {
@@ -872,30 +1033,23 @@
 
     .cashier-modal-badge {
       font-size: 11px;
-      font-weight: 800;
+      font-weight: 700;
+      letter-spacing: 0.05em;
       text-transform: uppercase;
       padding: 3px 8px;
-      border-radius: 6px;
+      border-radius: var(--r-tag);
     }
 
     .cashier-badge-cash {
-      background: rgba(34, 197, 94, 0.18);
-      color: #059669;
-      border: 1px solid rgba(34, 197, 94, 0.35);
-    }
-
-    [data-theme="dark"] .cashier-badge-cash {
-      color: #4ade80;
+      background: var(--badge-success-bg);
+      color: var(--badge-success-text);
+      border: 1px solid var(--badge-success-border);
     }
 
     .cashier-badge-card {
-      background: rgba(56, 189, 248, 0.18);
-      color: #0284c7;
-      border: 1px solid rgba(56, 189, 248, 0.35);
-    }
-
-    [data-theme="dark"] .cashier-badge-card {
-      color: #38bdf8;
+      background: var(--badge-info-bg);
+      color: var(--badge-info-text);
+      border: 1px solid var(--badge-info-border);
     }
 
     .cashier-btn-minimize {
@@ -904,7 +1058,7 @@
       color: var(--text-muted);
       width: 26px;
       height: 26px;
-      border-radius: 6px;
+      border-radius: var(--r-ctl);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -924,8 +1078,9 @@
       align-items: center;
       background: var(--bg-surface);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--r-ctl);
       padding: 10px 12px;
+      font-variant-numeric: tabular-nums;
     }
 
     .cashier-modal-actions {
@@ -936,24 +1091,28 @@
     }
 
     .cashier-btn-accept {
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      background: #15803d;
       color: #ffffff;
-      border: none;
-      border-radius: 6px;
+      border: 1px solid #15803d;
+      border-radius: var(--r-ctl);
       padding: 8px 10px;
       font-size: 12.5px;
-      font-weight: 700;
+      font-weight: 600;
       cursor: pointer;
+    }
+
+    .cashier-btn-accept:hover {
+      background: #166534;
     }
 
     .cashier-btn-decline {
       background: var(--badge-danger-bg);
       color: var(--badge-danger-text);
       border: 1px solid var(--badge-danger-border);
-      border-radius: 6px;
+      border-radius: var(--r-ctl);
       padding: 8px 10px;
       font-size: 12.5px;
-      font-weight: 700;
+      font-weight: 600;
       cursor: pointer;
     }
 
@@ -971,10 +1130,71 @@
       border-bottom: none;
       padding: 8px 12px;
     }
+
+    @media (max-width: 767px) {
+
+      header,
+      .main-nav-bar,
+      .sub-nav-bar {
+        padding-left: 1rem;
+        padding-right: 1rem;
+      }
+
+      header {
+        position: static;
+        padding-top: 0.6rem;
+        padding-bottom: 0.6rem;
+      }
+
+      .main-nav-bar {
+        top: 0;
+      }
+
+      main {
+        padding: 1rem;
+      }
+
+      .kpi-box {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .kpi-box:last-child {
+        border-bottom: none;
+      }
+
+      .cashier-floating-dock {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        max-width: none;
+      }
+
+      .cashier-modal-card {
+        width: 100%;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+
+      *,
+      *::before,
+      *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
   </style>
 </head>
 
 <body>
+
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="i-archive-box" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z"/></symbol><symbol id="i-arrow-down" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3"/></symbol><symbol id="i-arrow-down-on-square" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 8.25H7.5a2.25 2.25 0 0 0-2.25 2.25v9a2.25 2.25 0 0 0 2.25 2.25h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25H15M9 12l3 3m0 0 3-3m-3 3V2.25"/></symbol><symbol id="i-arrow-down-tray" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></symbol><symbol id="i-arrow-path" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></symbol><symbol id="i-arrow-right" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/></symbol><symbol id="i-arrow-top-right-on-square" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></symbol><symbol id="i-banknotes" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z"/></symbol><symbol id="i-beaker" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23-.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5"/></symbol><symbol id="i-bell" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/></symbol><symbol id="i-bell-alert" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0M3.124 7.5A8.969 8.969 0 0 1 5.292 3m13.416 0a8.969 8.969 0 0 1 2.168 4.5"/></symbol><symbol id="i-bolt" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"/></symbol><symbol id="i-bolt-slash" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.412 15.655 9.75 21.75l3.745-4.012M9.257 13.5H3.75l2.659-2.849m2.048-2.194L14.25 2.25 12 10.5h8.25l-4.707 5.043M8.457 8.457 3 3m5.457 5.457 7.086 7.086m0 0L21 21"/></symbol><symbol id="i-book-open" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25"/></symbol><symbol id="i-building-office-2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z"/></symbol><symbol id="i-building-storefront" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 21v-7.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 .75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349M3.75 21V9.349m0 0a3.001 3.001 0 0 0 3.75-.615A2.993 2.993 0 0 0 9.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 0 0 2.25 1.016c.896 0 1.7-.393 2.25-1.015a3.001 3.001 0 0 0 3.75.614m-16.5 0a3.004 3.004 0 0 1-.621-4.72l1.189-1.19A1.5 1.5 0 0 1 5.378 3h13.243a1.5 1.5 0 0 1 1.06.44l1.19 1.189a3 3 0 0 1-.621 4.72M6.75 18h3.75a.75.75 0 0 0 .75-.75V13.5a.75.75 0 0 0-.75-.75H6.75a.75.75 0 0 0-.75.75v3.75c0 .414.336.75.75.75Z"/></symbol><symbol id="i-chart-bar" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></symbol><symbol id="i-chat-bubble-left-right" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></symbol><symbol id="i-check-circle" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></symbol><symbol id="i-chevron-up" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5"/></symbol><symbol id="i-clipboard-document" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 7.5V6.108c0-1.135.845-2.098 1.976-2.192.373-.03.748-.057 1.123-.08M15.75 18H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08M15.75 18.75v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5A3.375 3.375 0 0 0 6.375 7.5H5.25m11.9-3.664A2.251 2.251 0 0 0 15 2.25h-1.5a2.251 2.251 0 0 0-2.15 1.586m5.8 0c.065.21.1.433.1.664v.75h-6V4.5c0-.231.035-.454.1-.664M6.75 7.5H4.875c-.621 0-1.125.504-1.125 1.125v12c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V16.5a9 9 0 0 0-9-9Z"/></symbol><symbol id="i-clock" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></symbol><symbol id="i-cloud" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z"/></symbol><symbol id="i-cog-6-tooth" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/>
+  <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></symbol><symbol id="i-computer-desktop" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25"/></symbol><symbol id="i-credit-card" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z"/></symbol><symbol id="i-device-phone-mobile" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/></symbol><symbol id="i-document-text" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></symbol><symbol id="i-envelope" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/></symbol><symbol id="i-exclamation-triangle" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></symbol><symbol id="i-eye" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+  <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></symbol><symbol id="i-globe-alt" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418"/></symbol><symbol id="i-globe-europe-africa" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m20.893 13.393-1.135-1.135a2.252 2.252 0 0 1-.421-.585l-1.08-2.16a.414.414 0 0 0-.663-.107.827.827 0 0 1-.812.21l-1.273-.363a.89.89 0 0 0-.738 1.595l.587.39c.59.395.674 1.23.172 1.732l-.2.2c-.212.212-.33.498-.33.796v.41c0 .409-.11.809-.32 1.158l-1.315 2.191a2.11 2.11 0 0 1-1.81 1.025 1.055 1.055 0 0 1-1.055-1.055v-1.172c0-.92-.56-1.747-1.414-2.089l-.655-.261a2.25 2.25 0 0 1-1.383-2.46l.007-.042a2.25 2.25 0 0 1 .29-.787l.09-.15a2.25 2.25 0 0 1 2.37-1.048l1.178.236a1.125 1.125 0 0 0 1.302-.795l.208-.73a1.125 1.125 0 0 0-.578-1.315l-.665-.332-.091.091a2.25 2.25 0 0 1-1.591.659h-.18c-.249 0-.487.1-.662.274a.931.931 0 0 1-1.458-1.137l1.411-2.353a2.25 2.25 0 0 0 .286-.76m11.928 9.869A9 9 0 0 0 8.965 3.525m11.928 9.868A9 9 0 1 1 8.965 3.525"/></symbol><symbol id="i-key" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></symbol><symbol id="i-lock-closed" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></symbol><symbol id="i-lock-open" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></symbol><symbol id="i-magnifying-glass" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></symbol><symbol id="i-map" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z"/></symbol><symbol id="i-moon" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"/></symbol><symbol id="i-no-symbol" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636"/></symbol><symbol id="i-phone" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z"/></symbol><symbol id="i-play" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z"/></symbol><symbol id="i-play-circle" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+  <path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z"/></symbol><symbol id="i-plus" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></symbol><symbol id="i-question-mark-circle" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"/></symbol><symbol id="i-rocket-launch" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 0 1-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 0 0 6.16-12.12A14.98 14.98 0 0 0 9.631 8.41m5.96 5.96a14.926 14.926 0 0 1-5.841 2.58m-.119-8.54a6 6 0 0 0-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 0 0-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 0 1-2.448-2.448 14.9 14.9 0 0 1 .06-.312m-2.24 2.39a4.493 4.493 0 0 0-1.757 4.306 4.493 4.493 0 0 0 4.306-1.758M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z"/></symbol><symbol id="i-scale" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v17.25m0 0c-1.472 0-2.882.265-4.185.75M12 20.25c1.472 0 2.882.265 4.185.75M18.75 4.97A48.416 48.416 0 0 0 12 4.5c-2.291 0-4.545.16-6.75.47m13.5 0c1.01.143 2.01.317 3 .52m-3-.52 2.62 10.726c.122.499-.106 1.028-.589 1.202a5.988 5.988 0 0 1-2.031.352 5.988 5.988 0 0 1-2.031-.352c-.483-.174-.711-.703-.59-1.202L18.75 4.971Zm-16.5.52c.99-.203 1.99-.377 3-.52m0 0 2.62 10.726c.122.499-.106 1.028-.589 1.202a5.989 5.989 0 0 1-2.031.352 5.989 5.989 0 0 1-2.031-.352c-.483-.174-.711-.703-.59-1.202L5.25 4.971Z"/></symbol><symbol id="i-server-stack" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z"/></symbol><symbol id="i-shield-check" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z"/></symbol><symbol id="i-shopping-bag" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/></symbol><symbol id="i-shopping-cart" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"/></symbol><symbol id="i-signal" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.652a3.75 3.75 0 0 1 0-5.304m5.304 0a3.75 3.75 0 0 1 0 5.304m-7.425 2.121a6.75 6.75 0 0 1 0-9.546m9.546 0a6.75 6.75 0 0 1 0 9.546M5.106 18.894c-3.808-3.807-3.808-9.98 0-13.788m13.788 0c3.808 3.807 3.808 9.98 0 13.788M12 12h.008v.008H12V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/></symbol><symbol id="i-sparkles" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"/></symbol><symbol id="i-stop" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z"/></symbol><symbol id="i-sun" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"/></symbol><symbol id="i-swatch" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.098 19.902a3.75 3.75 0 0 0 5.304 0l6.401-6.402M6.75 21A3.75 3.75 0 0 1 3 17.25V4.125C3 3.504 3.504 3 4.125 3h5.25c.621 0 1.125.504 1.125 1.125v4.072M6.75 21a3.75 3.75 0 0 0 3.75-3.75V8.197M6.75 21h13.125c.621 0 1.125-.504 1.125-1.125v-5.25c0-.621-.504-1.125-1.125-1.125h-4.072M10.5 8.197l2.88-2.88c.438-.439 1.15-.439 1.59 0l3.712 3.713c.44.44.44 1.152 0 1.59l-2.879 2.88M6.75 17.25h.008v.008H6.75v-.008Z"/></symbol><symbol id="i-tag" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z"/>
+  <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6Z"/></symbol><symbol id="i-user" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></symbol><symbol id="i-viewfinder-circle" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75H6A2.25 2.25 0 0 0 3.75 6v1.5M16.5 3.75H18A2.25 2.25 0 0 1 20.25 6v1.5m0 9V18A2.25 2.25 0 0 1 18 20.25h-1.5m-9 0H6A2.25 2.25 0 0 1 3.75 18v-1.5M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></symbol><symbol id="i-wrench-screwdriver" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z"/></symbol><symbol id="i-x-circle" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></symbol><symbol id="i-x-mark" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></symbol></svg>
+
 
   <!-- TOP HEADER -->
   <header>
@@ -986,12 +1206,8 @@
     </div>
 
     <div class="header-quick-stats">
-      <!-- Real Light / Dark Mode Toggle Pill -->
-      <div class="theme-mode-pill" id="headerThemeBadge" onclick="toggleThemeManual()"
-        title="Auto-switches to Dark Mode in Developer Hub and Bright White Mode in Operations &amp; Store Settings. Click to toggle manually anytime.">
-        <span id="headerThemeIcon">☀️</span>
-        <span id="headerThemeText">Bright White</span>
-      </div>
+      <!-- Theme: System (default) / Light / Dark -->
+      <div class="theme-switch" role="radiogroup" aria-label="Colour theme"><button type="button" role="radio" data-theme-pref="system" onclick="setThemePref('system')" title="Follow system setting"><svg class="i" aria-hidden="true"><use href="#i-computer-desktop"/></svg>System</button><button type="button" role="radio" data-theme-pref="light" onclick="setThemePref('light')" title="Light theme"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg>Light</button><button type="button" role="radio" data-theme-pref="dark" onclick="setThemePref('dark')" title="Dark theme"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg>Dark</button></div>
 
       <!-- YOUPI Store Port 5000 Switch Badge -->
       <div class="store-switch-badge is-offline" id="headerStoreBadge" onclick="toggleYoupiStore()"
@@ -1434,7 +1650,7 @@
                       <span>Hide Sub-banner</span>
                     </label>
                   </div>
-                  <input id="settingSubbannerText" type="text" placeholder="e.g. ⚡ 5-Second Instant UPI Activation"
+                  <input id="settingSubbannerText" type="text" placeholder="e.g. 5-Second Instant UPI Activation"
                     style="width:100%;" oninput="updateLiveWhiteLabelPreview()" />
                 </div>
                 <div>
@@ -1584,7 +1800,7 @@
                       <div style="font-size:17px; font-weight:900; color:#0f172a; margin-top:2px;">₹1,500.00</div>
                     </div>
                     <span
-                      style="background:#eff6ff; color:#2563eb; font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px;">Direct
+                      style="background:#eff6ff; color:#0f766e; font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px;">Direct
                       UPI</span>
                   </div>
 
@@ -1619,7 +1835,7 @@
                       <div style="font-size:13px; font-weight:800; color:#ffffff;">₹1,500.00</div>
                     </div>
                     <span id="mockupCtaButton"
-                      style="background:#2563eb; color:#ffffff; font-size:10.5px; font-weight:800; padding:5px 12px; border-radius:6px;">Continue
+                      style="background:#0f766e; color:#ffffff; font-size:10.5px; font-weight:800; padding:5px 12px; border-radius:6px;">Continue
                       &rsaquo;</span>
                   </div>
                 </div>
@@ -1875,7 +2091,7 @@
       <div id="subViewDevSimulator" hidden>
         <!-- Header Banner -->
         <div class="card"
-          style="border:2px solid #3b82f6; background:linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(15,23,42,0.98) 100%); margin-bottom:1.5rem;">
+          style="border:2px solid var(--primary); background:linear-gradient(135deg, rgba(20,184,166,0.12) 0%, rgba(15,23,42,0.98) 100%); margin-bottom:1.5rem;">
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
             <div>
               <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.35rem;">
@@ -1883,7 +2099,7 @@
                 <h2 style="margin:0; font-size:1.35rem; color:#ffffff; font-weight:800;">Developer Tools → Payment
                   Simulator</h2>
                 <span class="badge"
-                  style="background:#2563eb; color:#ffffff; font-size:0.75rem; padding:0.25rem 0.65rem;">DEVELOPER
+                  style="background:#0f766e; color:#ffffff; font-size:0.75rem; padding:0.25rem 0.65rem;">DEVELOPER
                   TESTING ONLY</span>
               </div>
               <p
@@ -1972,7 +2188,7 @@
 
               <!-- Selected Session Details Bar -->
               <div id="simSelectedSessionBar"
-                style="display:none; margin-top:0.75rem; padding:0.75rem 1rem; border-radius:8px; background:#1e293b; border:1px solid #3b82f6; display:flex; justify-content:space-between; align-items:center;">
+                style="display:none; margin-top:0.75rem; padding:0.75rem 1rem; border-radius:8px; background:#1e293b; border:1px solid var(--primary); display:flex; justify-content:space-between; align-items:center;">
                 <div>
                   <span style="font-size:0.72rem; color:#94a3b8; text-transform:uppercase;">Target Session</span>
                   <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.15rem;">
@@ -1997,7 +2213,7 @@
           style="display:grid; grid-template-columns:repeat(auto-fit, minmax(360px, 1fr)); gap:1.5rem; margin-bottom:1.5rem;">
 
           <!-- SMS STREAM PANEL -->
-          <div class="card" style="border:1px solid #3b82f6; background:#0b0f19;">
+          <div class="card" style="border:1px solid var(--primary); background:#0b0f19;">
             <div
               style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; border-bottom:1px solid #1e293b; padding-bottom:0.75rem;">
               <strong style="color:#60a5fa; font-size:1.05rem; display:flex; align-items:center; gap:0.5rem;">
@@ -2044,7 +2260,7 @@
             </div>
 
             <button id="simBtnPushSms" class="btn btn-primary" onclick="simInjectObservation('SMS')"
-              style="width:100%; background:#2563eb; border-color:#1d4ed8; padding:0.65rem; font-size:0.92rem; font-weight:800; display:flex; justify-content:center; align-items:center; gap:0.5rem;">
+              style="width:100%; background:#0f766e; border-color:#0b5f58; padding:0.65rem; font-size:0.92rem; font-weight:800; display:flex; justify-content:center; align-items:center; gap:0.5rem;">
               <span>🚀</span> PUSH SMS TO STREAM
             </button>
           </div>
@@ -2333,7 +2549,7 @@
                 <div style="margin-top:0.75rem; display:flex; justify-content:space-between; align-items:center;">
                   <span style="font-size:0.72rem; color:#64748b;">Preserved verbatim as <code>raw</code></span>
                   <button class="btn btn-primary" id="btnInjectSms" onclick="injectTestMessage('SMS')"
-                    style="background:#2563eb; border-color:#1d4ed8; font-size:0.82rem; padding:0.45rem 1rem;">
+                    style="background:#0f766e; border-color:#0b5f58; font-size:0.82rem; padding:0.45rem 1rem;">
                     🚀 Inject Test SMS
                   </button>
                 </div>
@@ -2841,7 +3057,7 @@
 
             <!-- Hero Action Box: Automated One-Click Google Connect -->
             <div id="gmailConnectHeroBox"
-              style="background:linear-gradient(135deg, rgba(37,99,235,0.1), rgba(15,23,42,0.6)); border:1px solid rgba(59,130,246,0.3); border-radius:0.75rem; padding:1.25rem; margin-bottom:1.25rem; display:flex; flex-direction:column; gap:0.75rem;">
+              style="background:linear-gradient(135deg, rgba(37,99,235,0.1), rgba(15,23,42,0.6)); border:1px solid rgba(20,184,166,0.3); border-radius:0.75rem; padding:1.25rem; margin-bottom:1.25rem; display:flex; flex-direction:column; gap:0.75rem;">
               <div
                 style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:0.75rem;">
                 <div style="flex:1; min-width:260px;">
@@ -2862,7 +3078,7 @@
                 <div style="display:flex; gap:0.5rem; align-items:center;">
                   <button type="button" id="btnGooglePrimaryAuth" class="btn btn-primary"
                     onclick="startAutomatedGoogleAuth()"
-                    style="display:inline-flex; align-items:center; gap:0.6rem; padding:0.65rem 1.25rem; font-size:0.9rem; font-weight:700; background:#2563eb; color:#fff; border:none; border-radius:0.5rem; cursor:pointer; box-shadow:0 4px 14px rgba(37,99,235,0.4);">
+                    style="display:inline-flex; align-items:center; gap:0.6rem; padding:0.65rem 1.25rem; font-size:0.9rem; font-weight:700; background:#0f766e; color:#fff; border:none; border-radius:0.5rem; cursor:pointer; box-shadow:0 4px 14px rgba(37,99,235,0.4);">
                     <svg width="18" height="18" viewBox="0 0 24 24">
                       <path fill="#ffffff"
                         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -2885,9 +3101,9 @@
 
               <!-- In-progress banner when popup is active -->
               <div id="gmailAuthInProgressBanner"
-                style="display:none; background:rgba(59,130,246,0.15); border:1px solid #3b82f6; border-radius:0.4rem; padding:0.6rem 0.85rem; font-size:0.82rem; color:#93c5fd; align-items:center; gap:0.5rem;">
+                style="display:none; background:rgba(20,184,166,0.15); border:1px solid var(--primary); border-radius:0.4rem; padding:0.6rem 0.85rem; font-size:0.82rem; color:#93c5fd; align-items:center; gap:0.5rem;">
                 <span class="spinner"
-                  style="width:14px; height:14px; border:2px solid #3b82f6; border-top-color:transparent; border-radius:50%; display:inline-block; animation:spin 1s linear infinite;"></span>
+                  style="width:14px; height:14px; border:2px solid var(--primary); border-top-color:transparent; border-radius:50%; display:inline-block; animation:spin 1s linear infinite;"></span>
                 <span>Google Authorization Window Active. Select your account and grant permissions to complete
                   automatic setup...</span>
               </div>
@@ -3375,6 +3591,85 @@
   <div id="cashierFloatingDock" class="cashier-floating-dock"></div>
 
   <script>
+    /* Emoji -> Heroicons (outline, 24px) swap. Sprite lives at the top of <body>.
+       Runs once on load and on every DOM change, so JS-rendered text is covered too.
+       Coloured circles become CSS dots (status state), not icons. */
+    (function () {
+      const MAP = {
+        '🛡': 'shield-check', '☀': 'sun', '🌙': 'moon', '💻': 'computer-desktop', '🏪': 'building-storefront',
+        '⚙': 'cog-6-tooth', '🛠': 'wrench-screwdriver', '⏳': 'clock', '⏱': 'clock', '⚠': 'exclamation-triangle',
+        '📦': 'archive-box', '💳': 'credit-card', '📡': 'signal', '📱': 'device-phone-mobile', '📋': 'clipboard-document',
+        '📲': 'arrow-down-tray', '📧': 'envelope', '✉': 'envelope', '🎨': 'swatch', '🏷': 'tag', '⚡': 'bolt',
+        '👤': 'user', '🛒': 'shopping-cart', '🛍': 'shopping-bag', '➕': 'plus', '🌐': 'globe-alt',
+        '🌍': 'globe-europe-africa', '🏬': 'building-office-2', '🎮': 'play-circle', '🖥': 'server-stack',
+        '📜': 'document-text', '🚀': 'rocket-launch', '🔬': 'beaker', '🧪': 'beaker', '🎯': 'viewfinder-circle',
+        '🎭': 'sparkles', '🎉': 'sparkles', '☁': 'cloud', '🛣': 'map', '🔐': 'lock-closed', '🔓': 'lock-open',
+        '🔑': 'key', '🔗': 'link', '🔌': 'bolt-slash', '📖': 'book-open', '🔄': 'arrow-path', '↻': 'arrow-path',
+        '💾': 'arrow-down-on-square', '💵': 'banknotes', '🚨': 'bell-alert', '🔔': 'bell', '🚫': 'no-symbol',
+        '❌': 'x-circle', '✅': 'check-circle', '❓': 'question-mark-circle', '👁': 'eye', '🔍': 'magnifying-glass',
+        '📞': 'phone', '💬': 'chat-bubble-left-right', '📊': 'chart-bar', '⚖': 'scale', 
+        '✓': 'check', '✕': 'x-mark', '↗': 'arrow-top-right-on-square', '↓': 'arrow-down', '→': 'arrow-right',
+        '▶': 'play', '⏹': 'stop', '▲': 'chevron-up',
+        '🔴': 'dot-red', '🟢': 'dot-green', '🟡': 'dot-yellow', '🔵': 'dot-blue', '🟣': 'dot-purple',
+        '⚫': 'dot-black', '⚪': 'dot-off'
+      };
+      const esc = k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const RE = new RegExp('(' + Object.keys(MAP).sort((a, b) => b.length - a.length).map(esc).join('|') + ')\\uFE0F?', 'g');
+      const SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'SYMBOL']);
+      const NS = 'http://www.w3.org/2000/svg';
+
+      function node(name) {
+        if (name.startsWith('dot-')) {
+          const d = document.createElement('span');
+          d.className = 'dot ' + name;
+          return d;
+        }
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('class', 'i');
+        svg.setAttribute('aria-hidden', 'true');
+        const use = document.createElementNS(NS, 'use');
+        use.setAttribute('href', '#i-' + name);
+        svg.appendChild(use);
+        return svg;
+      }
+
+      function swapText(t) {
+        const p = t.parentNode;
+        if (!p || SKIP.has(p.nodeName) || !RE.test(t.nodeValue)) { RE.lastIndex = 0; return; }
+        RE.lastIndex = 0;
+        if (p.nodeName === 'OPTION') { t.nodeValue = t.nodeValue.replace(RE, '').replace(/^\s+/, ''); return; }
+        const frag = document.createDocumentFragment();
+        const s = t.nodeValue;
+        let last = 0, m;
+        while ((m = RE.exec(s))) {
+          if (m.index > last) frag.appendChild(document.createTextNode(s.slice(last, m.index)));
+          frag.appendChild(node(MAP[m[1]]));
+          last = m.index + m[0].length;
+        }
+        if (last < s.length) frag.appendChild(document.createTextNode(s.slice(last)));
+        p.replaceChild(frag, t);
+      }
+
+      function walk(root) {
+        if (root.nodeType === 3) return swapText(root);
+        if (root.nodeType !== 1 || SKIP.has(root.nodeName)) return;
+        const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const hits = [];
+        while (w.nextNode()) hits.push(w.currentNode);
+        hits.forEach(swapText);
+      }
+
+      walk(document.body);
+      new MutationObserver(muts => {
+        for (const m of muts) {
+          if (m.type === 'characterData') swapText(m.target);
+          else m.addedNodes.forEach(walk);
+        }
+      }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    })();
+  </script>
+
+  <script>
     // --- Admin API authentication ---------------------------------------------------------
     // /api/v1/admin/* requires the admin token (ADMIN_API_TOKEN, or the generated file
     // data/.secrets/admin_api_token on the server). It is kept in sessionStorage for this tab only.
@@ -3388,7 +3683,7 @@
       const clear = () => { try { sessionStorage.removeItem(KEY); } catch (e) {} };
 
       function isProtected(url) {
-        return /\/api\/v1\/admin\//.test(url) && !/\/admin\/sms-gateway\/download-apk/.test(url);
+        return (/\/api\/v1\/admin\//.test(url) || /\/api\/services/.test(url) || /\/api\/admin\/tickets/.test(url)) && !/\/admin\/sms-gateway\/download-apk/.test(url);
       }
 
       function prompt(message) {
@@ -3412,7 +3707,7 @@
           const btn = document.createElement('button');
           btn.type = 'submit';
           btn.textContent = 'Unlock';
-          btn.style.cssText = 'width:100%;padding:10px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer';
+          btn.style.cssText = 'width:100%;padding:10px;border:0;border-radius:8px;background:#0f766e;color:#fff;font-weight:600;cursor:pointer';
           box.append(title, hint, input, btn);
           overlay.appendChild(box);
           document.body.appendChild(overlay);
@@ -3434,6 +3729,7 @@
         if (!read()) {
           await prompt();
           if (typeof connectAdminEventsSse === 'function') connectAdminEventsSse();
+          if (typeof connectServicesLogsSse === 'function') connectServicesLogsSse();
         }
         const attempt = () => {
           const headers = new Headers((init && init.headers) || (input && input.headers) || {});
@@ -3446,6 +3742,7 @@
           await prompt('That token was rejected. Enter the admin API token again.');
           res = await attempt();
           if (res.ok && typeof connectAdminEventsSse === 'function') connectAdminEventsSse();
+          if (res.ok && typeof connectServicesLogsSse === 'function') connectServicesLogsSse();
         }
         return res;
       }
@@ -3505,49 +3802,40 @@
     }
 
     // --- REAL LIGHT / DARK THEME CONTROLLER ---
-    let manualThemeOverride = null;
+    const THEME_KEY = 'youpi-theme';
+    const themeMQ = window.matchMedia('(prefers-color-scheme: dark)');
 
-    function updateThemeForSection(sectionId) {
-      if (manualThemeOverride !== null) {
-        applyTheme(manualThemeOverride);
-        return;
-      }
-      // Automatically real dark mode in developer settings, bright white mode in operations & store settings
-      if (sectionId === 'developerHub') {
-        applyTheme('dark');
-      } else {
-        applyTheme('light');
-      }
+    function getThemePref() {
+      try {
+        const v = localStorage.getItem(THEME_KEY);
+        return v === 'light' || v === 'dark' ? v : 'system';
+      } catch (e) { return 'system'; }
     }
 
-    function applyTheme(theme) {
+    function applyTheme(pref) {
+      const theme = pref === 'system' ? (themeMQ.matches ? 'dark' : 'light') : pref;
       document.documentElement.setAttribute('data-theme', theme);
-      document.body.setAttribute('data-theme', theme);
-
-      const icon = document.getElementById('headerThemeIcon');
-      const text = document.getElementById('headerThemeText');
-      if (theme === 'dark') {
-        if (icon) icon.textContent = '🌙';
-        if (text) text.textContent = 'Real Dark';
-      } else {
-        if (icon) icon.textContent = '☀️';
-        if (text) text.textContent = 'Bright White';
-      }
+      document.querySelectorAll('[data-theme-pref]').forEach(b => {
+        const on = b.dataset.themePref === pref;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-checked', on ? 'true' : 'false');
+      });
     }
 
-    function toggleThemeManual() {
-      const current = document.documentElement.getAttribute('data-theme') || 'light';
-      const next = current === 'dark' ? 'light' : 'dark';
-      manualThemeOverride = next;
-      applyTheme(next);
-      showAdminToast(`Switched to ${next === 'dark' ? 'Real Dark Mode' : 'Bright White Mode'}`);
+    function setThemePref(pref) {
+      try {
+        if (pref === 'system') localStorage.removeItem(THEME_KEY);
+        else localStorage.setItem(THEME_KEY, pref);
+      } catch (e) {}
+      applyTheme(pref);
     }
+
+    themeMQ.addEventListener('change', () => { if (getThemePref() === 'system') applyTheme('system'); });
+    applyTheme(getThemePref());
 
     // --- NAVIGATION CONTROLLER: 3 HIGH-LEVEL SECTIONS ---
     function switchSection(sectionId, targetSubTab = null) {
       activeSection = sectionId;
-      manualThemeOverride = null; // Auto-switching restores when navigating tabs
-      updateThemeForSection(sectionId);
 
       // Sync URL hash without jumping
       try {
@@ -3859,24 +4147,116 @@
 
     // --- LIVE AGGREGATE TERMINAL LOGS (SSE) ---
     let rawLogsBuffer = [];
+
+    /**
+     * Opens an SSE stream with an Authorization header.
+     *
+     * EventSource cannot send request headers, which is why the admin token used to be
+     * passed as a `?token=` query parameter. That put a credential with write access into
+     * the URL, so it landed in access logs, browser history and Referer headers. This uses
+     * fetch() with a streaming body instead and keeps the token in the header only.
+     *
+     * @param {string} url
+     * @param {string} token
+     * @param {(event: string, data: string) => void} onEvent
+     * @param {() => void} onError
+     * @returns {{ close: () => void }}
+     */
+    function openAuthenticatedEventStream(url, token, onEvent, onError) {
+      const controller = new AbortController();
+      const listeners = new Map();
+      let closed = false;
+
+      const emit = (type, data) => {
+        const handlers = listeners.get(type) || [];
+        for (const handler of handlers) {
+          try { handler({ data, type }); } catch (e) { }
+        }
+        if (onEvent) { try { onEvent(type, data); } catch (e) { } }
+      };
+
+      const run = async () => {
+        try {
+          const res = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'text/event-stream' },
+            signal: controller.signal
+          });
+          if (!res.ok || !res.body) throw new Error(`SSE failed: ${res.status}`);
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (!closed) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            let sep;
+            while ((sep = buffer.indexOf('\n\n')) !== -1) {
+              const raw = buffer.slice(0, sep);
+              buffer = buffer.slice(sep + 2);
+
+              let eventName = 'message';
+              const dataLines = [];
+              for (const line of raw.split('\n')) {
+                if (line.startsWith('event:')) eventName = line.slice(6).trim();
+                else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+              }
+              emit(eventName, dataLines.join('\n'));
+            }
+          }
+        } catch (err) {
+          if (!closed) {
+            if (typeof apiSse.onerror === 'function') { try { apiSse.onerror(err); } catch (e) { } }
+            if (onError) { try { onError(err); } catch (e) { } }
+          }
+        }
+      };
+
+      // Minimal EventSource-compatible surface so existing call sites keep working.
+      const apiSse = {
+        addEventListener(type, handler) {
+          if (!listeners.has(type)) listeners.set(type, []);
+          listeners.get(type).push(handler);
+        },
+        removeEventListener(type, handler) {
+          const arr = listeners.get(type) || [];
+          const i = arr.indexOf(handler);
+          if (i !== -1) arr.splice(i, 1);
+        },
+        close() {
+          closed = true;
+          try { controller.abort(); } catch (e) { }
+        },
+        onerror: null
+      };
+
+      run();
+      return apiSse;
+    }
+
     function connectServicesLogsSse() {
       if (servicesLogsSse) return;
+      const token = window.__youpiAdminAuth ? window.__youpiAdminAuth.token() : '';
+      if (!token) return;
       try {
-        servicesLogsSse = new EventSource('/api/logs/stream');
-        servicesLogsSse.addEventListener('log', (e) => {
-          try {
-            const entry = JSON.parse(e.data);
-            appendLogEntry(entry);
-          } catch { }
-        });
-        servicesLogsSse.addEventListener('status_change', () => {
-          loadServices();
-        });
-        servicesLogsSse.onerror = () => {
-          servicesLogsSse.close();
-          servicesLogsSse = null;
-          setTimeout(connectServicesLogsSse, 5000);
-        };
+        servicesLogsSse = openAuthenticatedEventStream(
+          '/api/logs/stream',
+          token,
+          (eventName, data) => {
+            if (eventName === 'log') {
+              try { appendLogEntry(JSON.parse(data)); } catch { }
+            } else if (eventName === 'status_change') {
+              loadServices();
+            }
+          },
+          () => {
+            servicesLogsSse.close();
+            servicesLogsSse = null;
+            setTimeout(connectServicesLogsSse, 5000);
+          }
+        );
       } catch (e) { }
     }
 
@@ -4821,8 +5201,8 @@
           </div>
         </div>
         <div style="display:flex; gap:0.5rem;">
-          <button class="btn btn-secondary" style="font-size:0.75rem;" onclick="copyText('${escapeHtml(r.hostname || '')}', 'Hostname copied to clipboard!')" ${!r.hostname ? 'disabled' : ''}>📋 Copy Hostname</button>
-          <button class="btn btn-secondary" style="font-size:0.75rem;" onclick="copyText('${escapeHtml(r.serviceUrl)}', 'Service URL copied to clipboard!')">📋 Copy Service URL</button>
+          <button class="btn btn-secondary" style="font-size:0.75rem;" onclick="copyText(${jsArg(r.hostname || '')}, 'Hostname copied to clipboard!')" ${!r.hostname ? 'disabled' : ''}>📋 Copy Hostname</button>
+          <button class="btn btn-secondary" style="font-size:0.75rem;" onclick="copyText(${jsArg(r.serviceUrl)}, 'Service URL copied to clipboard!')">📋 Copy Service URL</button>
         </div>
       </div>
     `).join('');
@@ -5562,24 +5942,30 @@
 
     function connectAdminEventsSse() {
       try {
-        // EventSource cannot send an Authorization header, so the stream accepts ?token= (GET only).
-        if (!window.__youpiAdminAuth.token()) return; // reconnected right after the token is entered
+        const adminToken = window.__youpiAdminAuth.token();
+        if (!adminToken) return; // reconnected right after the token is entered
         if (window.__adminSse) { try { window.__adminSse.close(); } catch (e) {} }
-        const adminSse = window.__adminSse = new EventSource(`${API_BASE}/api/v1/admin/stream?token=${encodeURIComponent(window.__youpiAdminAuth.token())}`);
-        adminSse.addEventListener('counter_payment_requested', (event) => {
-          pollGlobalCounterPending();
-          fetchLiveData();
-          if (typeof fetchCounterPayments === 'function') fetchCounterPayments();
-          try {
-            const payload = event.data ? JSON.parse(event.data) : null;
-            const isCash = payload?.method === 'CASH_COUNTER';
-            const amt = payload?.amountPaise ? `₹${(Number(payload.amountPaise) / 100).toFixed(2)}` : '';
-            const ord = payload?.orderId ? `(Order #${payload.orderId})` : '';
-            showAdminToast(`🔔 Cashier Prompt: Customer requested ${isCash ? '💵 Cash at Till' : '💳 Card at POS'} ${amt} ${ord}!`);
-          } catch (e) {
-            showAdminToast('🔔 Cashier Prompt: In-store customer selected Cash/Card payment!');
-          }
-        });
+        const adminSse = window.__adminSse = openAuthenticatedEventStream(
+          `${API_BASE}/api/v1/admin/stream`,
+          adminToken,
+          (eventName, data) => {
+            if (eventName !== 'counter_payment_requested') return;
+            const event = { data };
+            pollGlobalCounterPending();
+            fetchLiveData();
+            if (typeof fetchCounterPayments === 'function') fetchCounterPayments();
+            try {
+              const payload = event.data ? JSON.parse(event.data) : null;
+              const isCash = payload?.method === 'CASH_COUNTER';
+              const amt = (payload?.amountPaise) ? `₹${(Number(payload.amountPaise) / 100).toFixed(2)}` : '';
+              const ord = (payload?.orderId) ? `(Order #${payload.orderId})` : '';
+              showAdminToast(`🔔 Cashier Prompt: Customer requested ${isCash ? '💵 Cash at Till' : '💳 Card at POS'} ${amt} ${ord}!`);
+            } catch (e) {
+              showAdminToast('🔔 Cashier Prompt: In-store customer selected Cash/Card payment!');
+            }
+          },
+          () => { /* the caller reconnects */ }
+        );
         adminSse.addEventListener('status_change', () => {
           pollGlobalCounterPending();
           fetchLiveData();
@@ -6372,7 +6758,7 @@
           <div class="sim-session-row" onclick="simPickSession(${jsArg(s.id)})" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0.65rem; border-radius:6px; margin-bottom:0.35rem; background:#0f172a; border:1px solid #1e293b; transition:all 0.15s ease;" id="simSessItem_${escapeAttribute(s.id)}">
             <div>
               <div style="display:flex; align-items:center; gap:0.4rem;">
-                <input type="radio" name="simSessionRadio" id="radio_${s.id}" style="accent-color:#3b82f6; cursor:pointer;" />
+                <input type="radio" name="simSessionRadio" id="radio_${s.id}" style="accent-color:var(--primary); cursor:pointer;" />
                 <strong style="color:#f8fafc; font-size:0.84rem; font-family:monospace;">${escapeHtml(s.id.slice(0, 14))}...</strong>
                 <span style="color:#94a3b8; font-size:0.78rem;">#${escapeHtml(s.orderId)}</span>
               </div>
@@ -6420,8 +6806,8 @@
       });
       const item = document.getElementById(`simSessItem_${sessionId}`);
       if (item) {
-        item.style.borderColor = '#3b82f6';
-        item.style.background = 'rgba(59,130,246,0.12)';
+        item.style.borderColor = 'var(--primary)';
+        item.style.background = 'rgba(20,184,166,0.12)';
       }
       const radio = document.getElementById(`radio_${sessionId}`);
       if (radio) radio.checked = true;
@@ -6767,7 +7153,7 @@
           <td style="text-align:right;">
             <div style="display:inline-flex; gap:0.4rem;">
               <button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="viewBanDetails(${jsArg(u.id)})">🔍 Details</button>
-              <button class="btn btn-success" style="padding:0.3rem 0.6rem; font-size:0.75rem; background:#059669; border-color:#059669;" onclick="promptUnbanCustomer('${u.id}', '${escapeHtml(u.name || '')}', '${escapeHtml(u.phone || u.mobileNumber || '')}')">🔓 Unban</button>
+              <button class="btn btn-success" style="padding:0.3rem 0.6rem; font-size:0.75rem; background:#059669; border-color:#059669;" onclick="promptUnbanCustomer(${jsArg(u.id)}, ${jsArg(u.name || '')}, ${jsArg(u.phone || u.mobileNumber || '')})">🔓 Unban</button>
             </div>
           </td>
         </tr>

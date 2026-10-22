@@ -50,13 +50,13 @@ export function extractIntelligentPaise(text) {
  * Regex for extracting bank UTR / Reference numbers.
  * Matches: UTR: 123456789012, Ref 123456789012, Txn: ABC123XYZ, RRN: 987654
  */
-const REFERENCE_REGEX = /(?:utr|ref|txn|rrn|reference)[:\s#]+([a-zA-Z0-9\-_]{6,35})/i;
+const REFERENCE_REGEX = /(?:utr|ref(?:\s*no\.?)?|txn(?:\s*(?:id|#))?|transaction\s*id|rrn|reference(?:\s*no\.?)?|upi(?:\s*(?:ref|reference|txn))?)[:\s#]+([a-zA-Z0-9\-_]{6,35})/i;
 
 /**
  * Regex for extracting sender VPA if present in notification text.
- * Matches: from user@upi, from 9876543210@paytm, etc.
+ * Matches: from user@upi, from 9876543210@paytm, from Rahul (UPI ID: rahul@fam), etc.
  */
-const SENDER_VPA_REGEX = /(?:from|by)\s+([a-zA-Z0-9.\-_]{2,100}@[a-zA-Z0-9.\-_]{2,64})/i;
+const SENDER_VPA_REGEX = /(?:from|by|vpa|upi\s*id)[\s:]+(?:[a-zA-Z\s]+[\(\[])?([a-zA-Z0-9.\-_]{2,100}@[a-zA-Z0-9.\-_]{2,64})/i;
 
 export class ObservationNormalizer {
   /**

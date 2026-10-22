@@ -13,14 +13,15 @@ export class PaymentSessionRepository {
     const id = data.id || crypto.randomUUID();
     const now = new Date().toISOString();
     const metadata = typeof data.metadata === 'object' ? JSON.stringify(data.metadata) : (data.metadata || '{}');
+    const attemptId = data.attemptId || id;
 
     const sql = `
       INSERT INTO payment_sessions (
-        id, merchant_id, customer_id, receiving_account_id, order_id,
+        id, merchant_id, customer_id, receiving_account_id, order_id, attempt_id,
         amount_paise, currency, method, status, queue_position,
         return_url, idempotency_key, device_id, verification_level, verification_sources,
         verification_tag, metadata, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', 'UNVERIFIED', ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', 'UNVERIFIED', ?, ?, ?)
     `;
 
     this.db.execute(sql, [
@@ -29,6 +30,7 @@ export class PaymentSessionRepository {
       data.customerId || null,
       data.receivingAccountId || null,
       data.orderId,
+      attemptId,
       Number(data.amountPaise),
       data.currency || 'INR',
       data.method || PaymentMethod.UPI,
@@ -462,11 +464,11 @@ export class PaymentSessionRepository {
     const rows = this.db.query(`
       SELECT * FROM payment_sessions
       WHERE receiving_account_id = ?
-        AND status IN (?, ?)
+        AND status IN (?, ?, ?)
         AND updated_at >= ?
       ORDER BY updated_at DESC
       LIMIT 20
-    `, [receivingAccountId, PaymentStatus.EXPIRED, PaymentStatus.FAILED, sinceDate.toISOString()]);
+    `, [receivingAccountId, PaymentStatus.EXPIRED, PaymentStatus.FAILED, PaymentStatus.CANCELLED, sinceDate.toISOString()]);
 
     return rows.map(r => this.mapRow(r));
   }
@@ -589,6 +591,7 @@ export class PaymentSessionRepository {
       customerId: row.customer_id,
       receivingAccountId: row.receiving_account_id,
       orderId: row.order_id,
+      attemptId: row.attempt_id || row.id,
       amountPaise: BigInt(row.amount_paise),
       currency: row.currency,
       method: row.method,

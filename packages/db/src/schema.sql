@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS merchants (
     contact_phone VARCHAR(20) NOT NULL,
     webhook_url VARCHAR(1024),
     webhook_secret VARCHAR(255) NOT NULL,
+    api_key_hash VARCHAR(64),
     branding TEXT NOT NULL DEFAULT '{"primaryColor":"#2563eb","appName":"YOUPI PG","logoUrl":null}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -134,6 +135,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_single_active_session_per_order
 CREATE UNIQUE INDEX IF NOT EXISTS idx_one_slot_per_receiving_account
   ON payment_sessions (receiving_account_id)
   WHERE status IN ('ACTIVE', 'PROCESSING') AND receiving_account_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_sessions_attributed_obs
+  ON payment_sessions (attributed_observation_id)
+  WHERE attributed_observation_id IS NOT NULL;
 
 -- 5. Payment Observations Table
 CREATE TABLE IF NOT EXISTS payment_observations (
@@ -154,6 +158,9 @@ CREATE TABLE IF NOT EXISTS payment_observations (
 
 CREATE INDEX IF NOT EXISTS idx_observations_match ON payment_observations (receiving_account_id, amount_paise, attribution_status);
 CREATE INDEX IF NOT EXISTS idx_observations_bank_ref ON payment_observations (bank_reference_number);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_observations_unique_attributed_bank_ref
+  ON payment_observations (bank_reference_number)
+  WHERE bank_reference_number IS NOT NULL AND attributed_payment_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_observations_fingerprint ON payment_observations (fingerprint_hash);
 CREATE INDEX IF NOT EXISTS idx_observations_attributed_payment ON payment_observations (attributed_payment_id);
 

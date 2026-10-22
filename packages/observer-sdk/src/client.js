@@ -55,6 +55,25 @@ export class PaymentObserverClient {
   }
 
   /**
+   * Fetches active window sessions from payment core with observer bearer authentication.
+   * @returns {Promise<Array<any>>}
+   */
+  async getActiveWindow() {
+    const url = `${this.apiBaseUrl}/api/v1/pollers/active-window`;
+    try {
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${getObserverToken()}` },
+        signal: AbortSignal.timeout(3000)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.sessions || [];
+      }
+    } catch {}
+    return [];
+  }
+
+  /**
    * Submits signed observation from Android Observer with HMAC-SHA256 signature.
    * @param {{
    *   deviceId: string,

@@ -113,5 +113,45 @@ describe('Merchant SDK Integration Tests', () => {
         /invalid signature header format/
       );
     });
+
+    test('verifies timestamped webhook signatures and rejects stale or mismatched timestamps', () => {
+      const now = Date.now();
+      const payloadObj = {
+        event: 'SUCCESS',
+        deliveryId: 'deliv_1001',
+        timestamp: now,
+        paymentId: 'pay_1001',
+        orderId: 'ORD-1001',
+        amount: '300.00',
+        amountPaise: 30000,
+        currency: 'INR'
+      };
+      const rawString = JSON.stringify(payloadObj);
+      const sig = `sha256=${generateHmac(rawString, merchantSecret)}`;
+
+      // Valid fresh timestamp matching signed payload
+      const verified = client.verifyWebhook(rawString, sig, String(now), { toleranceMs: 300000 });
+      assert.equal(verified.orderId, 'ORD-1001');
+
+      // Also supports `${timestamp}.${rawBody}` signature scheme
+      const bodyWithoutEmbeddedTs = JSON.stringify({ event: 'SUCCESS', orderId: 'ORD-1002' });
+      const tsSig = `sha256=${generateHmac(`${now}.${bodyWithoutEmbeddedTs}`, merchantSecret)}`;
+      const verifiedV2 = client.verifyWebhook(bodyWithoutEmbeddedTs, tsSig, String(now), { toleranceMs: 300000 });
+      assert.equal(verifiedV2.orderId, 'ORD-1002');
+
+      // Stale timestamp outside tolerance window is rejected
+      const staleTs = String(now - 10 * 60 * 1000);
+      const staleSig = `sha256=${generateHmac(`${staleTs}.${bodyWithoutEmbeddedTs}`, merchantSecret)}`;
+      assert.throws(
+        () => client.verifyWebhook(bodyWithoutEmbeddedTs, staleSig, staleTs, { toleranceMs: 300000 }),
+        /timestamp missing or outside tolerance window/
+      );
+
+      // Mismatched timestamp header vs signed payload timestamp is rejected
+      assert.throws(
+        () => client.verifyWebhook(rawString, sig, String(now + 1000), { toleranceMs: 300000 }),
+        /timestamp header does not match signed payload timestamp/
+      );
+    });
   });
 });

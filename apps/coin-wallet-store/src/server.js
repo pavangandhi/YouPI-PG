@@ -35,7 +35,12 @@ const MAX_JSON_BODY_BYTES = 64 * 1024;
 /** Largest single top-up the demo store accepts. */
 const MAX_TOPUP_RUPEES = 100000;
 /** Accepted clock skew for an inbound webhook's X-Gateway-Timestamp. */
-const WEBHOOK_MAX_SKEW_MS = 5 * 60 * 1000;
+// The gateway signs the delivery timestamp into the body and reuses it on every retry, so
+// a retried delivery legitimately arrives with an older timestamp. The window therefore
+// has to cover the gateway's whole retry schedule (backoffs up to 1 hour), otherwise a
+// legitimate retry is rejected as a replay. Replay of the SAME delivery is still caught by
+// the delivery-id dedupe below.
+const WEBHOOK_MAX_SKEW_MS = 2 * 60 * 60 * 1000;
 
 /** Keeps a client-supplied pack name printable and bounded before it is stored as metadata. */
 function sanitizePackName(value) {
@@ -104,6 +109,8 @@ export class CoinWalletStoreServer {
 
     // orderId -> gateway paymentId for orders this store created (used to verify payments server-side)
     this.orderPayments = new Map();
+    // orderId -> { orderId, paymentId, amountPaise, coins, packName, createdAt }
+    this.orders = new Map();
 
     // Recently processed X-Gateway-Delivery-Id values, used to reject replayed webhooks.
     this.seenDeliveryIds = new Map();
@@ -466,6 +473,8 @@ export class CoinWalletStoreServer {
             // Coin quantity is derived server-side from the amount paid. A client-supplied
             // `coins` value would let a buyer pay ₹1 and be credited an arbitrary balance.
             const coins = Math.round(price);
+            const amountPaise = Math.round(price * 100);
+            const packName = sanitizePackName(data.packName || data.productName);
 
             // Call YOUPI Payment Gateway via SDK
             const payment = await this.paymentClient.createPayment({
@@ -475,11 +484,19 @@ export class CoinWalletStoreServer {
               returnUrl,
               metadata: {
                 coins,
-                packName: sanitizePackName(data.packName || data.productName)
+                packName
               }
             });
 
             this.orderPayments.set(orderId, payment.paymentId);
+            this.orders.set(orderId, {
+              orderId,
+              paymentId: payment.paymentId,
+              amountPaise,
+              coins,
+              packName,
+              createdAt: Date.now()
+            });
 
             // Normalize checkoutUrl for localhost development / testing to prevent tunnel offline issues
             let resolvedCheckoutUrl = payment.checkoutUrl;
@@ -528,14 +545,15 @@ export class CoinWalletStoreServer {
             };
 
             // The payment id comes from the order this server created, never from the browser.
-            const paymentId = clientOrderId ? this.orderPayments.get(clientOrderId) : undefined;
+            const localOrder = clientOrderId ? this.orders.get(clientOrderId) : undefined;
+            const paymentId = localOrder?.paymentId || (clientOrderId ? this.orderPayments.get(clientOrderId) : undefined);
             if (!paymentId) {
               sendJson(404, { error: 'Unknown order' });
               return;
             }
 
             // Never trust the browser: ask the gateway whether this payment really succeeded,
-            // and take the order id and coin amount from the gateway session, not from the request.
+            // and take the order id and coin amount from the local order record, not from the request.
             let session;
             try {
               session = await this.paymentClient.getPayment(paymentId);
@@ -553,6 +571,10 @@ export class CoinWalletStoreServer {
               sendJson(400, { error: 'orderId does not match payment' });
               return;
             }
+            if (localOrder && Number(session.amountPaise) !== Number(localOrder.amountPaise)) {
+              sendJson(400, { error: 'Payment amount does not match order' });
+              return;
+            }
 
             const orderId = session.orderId;
             if (this.transactionHistory.some(t => t.orderId === orderId)) {
@@ -560,13 +582,14 @@ export class CoinWalletStoreServer {
               return;
             }
 
-            // Clamp the credited amount: metadata is written by this server, but a session created
-            // out-of-band could carry an arbitrary coin count.
-            const requestedCoins = Number(session.metadata?.coins);
-            const creditedCoins = (Number.isFinite(requestedCoins) && requestedCoins > 0)
-              ? Math.min(Math.round(requestedCoins), MAX_TOPUP_RUPEES)
-              : 100;
-            const finalPackName = sanitizePackName(session.metadata?.packName || 'Coin Pack');
+            // Always derive credited coins from the authoritative local order record (or paid amountPaise),
+            // never from untrusted client parameters or out-of-band metadata.
+            const paidPaise = Number(localOrder?.amountPaise ?? session.amountPaise);
+            const derivedFromAmount = Number.isFinite(paidPaise) && paidPaise > 0
+              ? Math.min(Math.max(1, Math.round(paidPaise / 100)), MAX_TOPUP_RUPEES)
+              : 1;
+            const creditedCoins = localOrder ? localOrder.coins : derivedFromAmount;
+            const finalPackName = sanitizePackName(localOrder?.packName || session.metadata?.packName || 'Coin Pack');
 
             this.creditCoins(orderId, creditedCoins, finalPackName);
             console.log(`[Coin Wallet Store] Verified & credited ${creditedCoins} coins for Order ${orderId}. New balance: ${this.walletCoins}`);
@@ -624,25 +647,40 @@ export class CoinWalletStoreServer {
 
           try {
             // Signature is verified over the RAW body, before any JSON parsing.
-            const event = this.paymentClient.verifyWebhook(rawBody, signature);
-            if (deliveryId) this.rememberDeliveryId(deliveryId);
+            const event = this.paymentClient.verifyWebhook(rawBody, signature, timestamp, {
+              toleranceMs: WEBHOOK_MAX_SKEW_MS,
+              allowUnsignedTimestampHeader: true
+            });
 
             const paidMethod = event.method || event.data?.method;
             // COD / counter 'SUCCESS' means an order was placed, not that money arrived.
             if ((event.event === 'SUCCESS' || event.status === 'SUCCESS') && paidMethod === 'UPI') {
               const orderId = event.orderId || event.data?.orderId;
+              const localOrder = orderId ? this.orders.get(orderId) : undefined;
+              if (!localOrder && (!orderId || !this.orderPayments.has(orderId))) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unknown order' }));
+                return;
+              }
+              const eventAmountPaise = Number(event.amountPaise ?? event.data?.amountPaise);
+              if (localOrder && (!Number.isFinite(eventAmountPaise) || eventAmountPaise !== Number(localOrder.amountPaise))) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Webhook amount does not match order' }));
+                return;
+              }
+
               const alreadyCredited = this.transactionHistory.some(t => t.orderId === orderId);
               if (!alreadyCredited) {
-                const requested = Number(event.metadata?.coins || event.data?.metadata?.coins);
-                const coinsToAdd = (Number.isFinite(requested) && requested > 0)
-                  ? Math.min(Math.round(requested), MAX_TOPUP_RUPEES)
-                  : 100;
-                const packName = sanitizePackName(event.metadata?.packName || event.data?.metadata?.packName);
+                const coinsToAdd = localOrder
+                  ? localOrder.coins
+                  : Math.min(Math.max(1, Math.round(eventAmountPaise / 100)), MAX_TOPUP_RUPEES);
+                const packName = sanitizePackName(localOrder?.packName || event.metadata?.packName || event.data?.metadata?.packName);
                 this.creditCoins(orderId, coinsToAdd, packName);
                 console.log(`[Coin Wallet Store] Webhook received! Credited ${coinsToAdd} coins for Order ${orderId}. New balance: ${this.walletCoins}`);
               }
             }
 
+            if (deliveryId) this.rememberDeliveryId(deliveryId);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ received: true, credited: true }));
           } catch (err) {
