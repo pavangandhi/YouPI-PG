@@ -238,10 +238,7 @@
         if (state.returnUrl) {
           const safeReturn = sanitizeRedirectUrl(state.returnUrl);
           if (safeReturn) {
-            try {
-              const parsed = new URL(safeReturn);
-              return parsed.origin ? `${parsed.origin}/` : safeReturn;
-            } catch (e) { }
+            return safeReturn;
           }
         }
       }
@@ -253,10 +250,7 @@
         const qUrl = params.get('returnUrl') || params.get('storeUrl') || params.get('redirectUrl');
         const safeQueryUrl = sanitizeRedirectUrl(qUrl);
         if (safeQueryUrl) {
-          try {
-            const parsed = new URL(safeQueryUrl);
-            return parsed.origin ? `${parsed.origin}/` : safeQueryUrl;
-          } catch (e) { }
+          return safeQueryUrl;
         }
       } catch (e) { }
       if (document.referrer) {
@@ -1618,7 +1612,7 @@
 
       // Update PC Sidebar Details & Whitelabeling
       const pcMerchant = document.getElementById('pcMerchantName');
-      if (pcMerchant) pcMerchant.textContent = data.merchantName || 'Merchant Name';
+      if (pcMerchant) pcMerchant.textContent = data.merchantName || 'Merchant Checkout';
       const pcPrice = document.getElementById('pcPriceSummaryAmount');
       if (pcPrice && data.amount) pcPrice.textContent = `₹${data.amount}`;
       const pcAppBrand = document.getElementById('pcAppNameBrand');
