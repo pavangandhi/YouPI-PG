@@ -1994,15 +1994,6 @@
           window.autoBindCustomerToSession(activeCustomer.id, activeToken);
         }
       }
-      // The 5-minute UPI window is only started when the UPI method is
-      // explicitly selected. A customer who verifies their phone first (which
-      // is the normal order) never touches the method tab, so the session
-      // stayed INITIATED and the QR was never produced. Selecting UPI here
-      // acquires the slot and starts the timer, which is what makes the QR
-      // appear straight after verification.
-      if (currentSelectedMethod === 'UPI' && data.status === 'INITIATED') {
-        selectPaymentMethod('UPI');
-      }
       setGatewayAuthMode(false);
 
       // Render psychological time-saving conversion banner
