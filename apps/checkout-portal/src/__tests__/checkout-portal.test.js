@@ -87,14 +87,20 @@ describe('Checkout Portal Integration Tests', () => {
     });
 
     test('GET /checkout/:id framing is controlled by CHECKOUT_FRAME_ANCESTORS', async () => {
-      // No allowlist configured: the checkout page stays framable by any origin, because
-      // merchant storefronts embed it cross-origin. Deployments can pin the allowlist.
-      const before = await get('/checkout/pay_test_uuid_12345');
-      assert.equal(before.headers['x-frame-options'], undefined);
-      assert.ok(before.headers['content-security-policy'].includes('frame-ancestors *;'));
-
-      process.env.CHECKOUT_FRAME_ANCESTORS = 'https://shop.example.com, javascript:alert(1) https://x.test/path *';
+      // The portal loads the repository's .env at import time, so a developer's local
+      // CHECKOUT_FRAME_ANCESTORS would otherwise leak into this test and the
+      // "no allowlist configured" case below could never be observed. Control the
+      // variable explicitly and restore whatever was there afterwards.
+      const previousAncestors = process.env.CHECKOUT_FRAME_ANCESTORS;
+      delete process.env.CHECKOUT_FRAME_ANCESTORS;
       try {
+        // No allowlist configured: the checkout page stays framable by any origin, because
+        // merchant storefronts embed it cross-origin. Deployments can pin the allowlist.
+        const before = await get('/checkout/pay_test_uuid_12345');
+        assert.equal(before.headers['x-frame-options'], undefined);
+        assert.ok(before.headers['content-security-policy'].includes('frame-ancestors *;'));
+
+        process.env.CHECKOUT_FRAME_ANCESTORS = 'https://shop.example.com, javascript:alert(1) https://x.test/path *';
         const res = await get('/checkout/pay_test_uuid_12345');
         assert.equal(res.headers['x-frame-options'], undefined);
         assert.ok(res.headers['content-security-policy'].includes("frame-ancestors 'self' https://shop.example.com;"));
@@ -102,7 +108,11 @@ describe('Checkout Portal Integration Tests', () => {
         const qr = await get('/checkout/pay_test_uuid_12345/qr.svg');
         assert.equal(qr.headers['x-frame-options'], 'SAMEORIGIN');
       } finally {
-        delete process.env.CHECKOUT_FRAME_ANCESTORS;
+        if (previousAncestors === undefined) {
+          delete process.env.CHECKOUT_FRAME_ANCESTORS;
+        } else {
+          process.env.CHECKOUT_FRAME_ANCESTORS = previousAncestors;
+        }
       }
       assert.deepEqual(frameAncestorOrigins('https://a.test http://localhost:5000/'), ['https://a.test', 'http://localhost:5000']);
       // Entries that are not a bare http(s) origin are rejected outright, so the value can
