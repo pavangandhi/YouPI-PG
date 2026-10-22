@@ -366,6 +366,26 @@ async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFF
     };
   }
 
+  // Dev/localhost mode: no real bank observers are enrolled, so the health
+  // check would always report RED and scare off testers. Treat the UPI server
+  // as healthy in dev mode so the QR flow can be exercised end to end.
+  const isDevMode = (process.env.YOUPI_MODE === 'localhost' || process.env.NODE_ENV === 'development')
+    && process.env.NODE_ENV !== 'test';
+  if (isDevMode) {
+    return {
+      status: 'WORKING',
+      tier: 'GREEN',
+      label: 'Server Is Working',
+      isWorking: true,
+      reason: 'Dev mode: bank observers not required for local testing',
+      smsHealthy: true,
+      gmailHealthy: true,
+      warning: null,
+      recommendedAlternative: null,
+      isDevMode: true
+    };
+  }
+
   return {
     status: 'ISSUES',
     tier: 'RED',
