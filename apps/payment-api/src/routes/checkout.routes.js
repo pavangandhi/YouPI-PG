@@ -463,6 +463,7 @@ export function registerCheckoutRoutes(server, ctx) {
         amountPaise: session.amountPaise.toString(),
         currency: session.currency,
         status: session.status,
+        merchantName: merchant?.businessName || 'Merchant',
         timeRemainingSeconds: 0,
         isTerminal: true,
         // The return URL belongs to the terminal payload too. The checkout
@@ -1067,6 +1068,51 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
+    const isDevMode = (process.env.YOUPI_MODE === 'localhost' || process.env.NODE_ENV === 'development')
+      && process.env.NODE_ENV !== 'test';
+
+    if (isDevMode) {
+      // Dev mode: no bank observers are enrolled, so verification can never
+      // complete. Auto-verify the UPI payment so the checkout flow (QR -> success)
+      // can be exercised end to end. Mirrors the COD success path.
+      const nowIso = new Date().toISOString();
+      ctx.sessionRepo.db.transaction(() => {
+        ctx.sessionRepo.db.execute(`
+          UPDATE payment_sessions
+          SET status = 'SUCCESS',
+              verification_tag = 'DEV_AUTO_VERIFIED',
+              verification_level = 1,
+              completed_at = ?,
+              receiving_account_id = NULL,
+              updated_at = ?
+          WHERE id = ? AND status IN ('INITIATED', 'QUEUED', 'ACTIVE')
+        `, [nowIso, nowIso, session.id]);
+      });
+
+      const updated = ctx.sessionRepo.findById(session.id);
+      if (updated?.receivingAccountId) {
+        ctx.queueEngine?.promoteNext?.(updated.receivingAccountId);
+      }
+
+      server.broadcastSse(session.id, 'status_change', {
+        status: PaymentStatus.SUCCESS,
+        verificationLevel: 1,
+        verificationTag: 'DEV_AUTO_VERIFIED'
+      });
+
+      if (ctx.webhookEngine) {
+        ctx.webhookEngine.dispatch('SUCCESS', updated).catch(err => console.error('Dev auto-verify webhook failed:', err.message));
+      }
+
+      HttpServer.json(res, 200, {
+        paymentId: updated.id,
+        status: PaymentStatus.SUCCESS,
+        verificationTag: 'DEV_AUTO_VERIFIED',
+        returnUrl: session.returnUrl
+      });
+      return;
+    }
+
     const updated = ctx.timingEngine.handlePaymentDone(params.id);
 
     // Broadcast SSE update
@@ -1377,6 +1423,49 @@ export function registerCheckoutRoutes(server, ctx) {
     const counterInstr = method === PaymentMethod.CARD_COUNTER
       ? (merchantBranding.cardCounterInstructions || merchantBranding.counterInstructions || 'Please visit the billing counter and pay via Card POS.')
       : (merchantBranding.counterInstructions || 'Please visit the billing counter and present this screen to the cashier.');
+
+    // Dev mode: auto-verify UPI payments after a short delay so the success
+    // flow can be tested without bank observers. Runs in the background; the
+    // client polls loadState() and will flip to the success view on its own.
+    const isDevMode = (process.env.YOUPI_MODE === 'localhost' || process.env.NODE_ENV === 'development')
+      && process.env.NODE_ENV !== 'test';
+    if (isDevMode && session.status === PaymentStatus.ACTIVE && method === PaymentMethod.UPI) {
+      const sid = session.id;
+      setTimeout(() => {
+        try {
+          const s = ctx.sessionRepo.findById(sid);
+          if (!s || s.status !== PaymentStatus.ACTIVE) return;
+          const nowIso = new Date().toISOString();
+          ctx.sessionRepo.db.transaction(() => {
+            ctx.sessionRepo.db.execute(`
+              UPDATE payment_sessions
+              SET status = 'SUCCESS',
+                  verification_tag = 'DEV_AUTO_VERIFIED',
+                  verification_level = 1,
+                  completed_at = ?,
+                  receiving_account_id = NULL,
+                  updated_at = ?
+              WHERE id = ? AND status = 'ACTIVE'
+            `, [nowIso, nowIso, sid]);
+          });
+          const updated = ctx.sessionRepo.findById(sid);
+          if (updated?.receivingAccountId) {
+            ctx.queueEngine?.promoteNext?.(updated.receivingAccountId);
+          }
+          server.broadcastSse(sid, 'status_change', {
+            status: PaymentStatus.SUCCESS,
+            verificationLevel: 1,
+            verificationTag: 'DEV_AUTO_VERIFIED'
+          });
+          if (ctx.webhookEngine) {
+            ctx.webhookEngine.dispatch('SUCCESS', updated).catch(err => console.error('Dev auto-verify webhook failed:', err.message));
+          }
+          console.log('[dev] Auto-verified UPI session', sid, '-> SUCCESS');
+        } catch (err) {
+          console.error('[dev] Auto-verify failed:', err.message);
+        }
+      }, 5000);
+    }
 
     HttpServer.json(res, 200, {
       success: true,
