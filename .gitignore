@@ -23,13 +23,10 @@ local.properties
 *.aar
 !apps/android-observer-app/youpi-sms-gateway.apk
 
-# Environment and Secrets
+# Environment and Secrets — keep every local variant out, but ship the template.
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production
-.env.production.local
+.env.*
+!.env.example
 
 # Databases and Local State
 data/*.sqlite*
