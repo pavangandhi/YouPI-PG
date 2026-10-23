@@ -6,7 +6,45 @@ import { runMigrations } from './migrate.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, '../../..');
+/**
+ * Locate the workspace root.
+ *
+ * The normal layout is `packages/db/src/database.js`, so `../../..` is the
+ * repository root. Some npm versions / install-links settings install workspace
+ * packages as *copies* under `node_modules/@youpi/db` instead of symlinking
+ * them; in that layout `../../..` is `node_modules/`, and the gateway silently
+ * creates a second, empty database there. Walk up until we find the
+ * package.json that declares the workspaces, and fall back to the original
+ * relative path.
+ *
+ * @param {string} start
+ * @returns {string}
+ */
+function findRepoRoot(start) {
+  let dir = start;
+  for (;;) {
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        const workspaces = Array.isArray(pkg.workspaces)
+          ? pkg.workspaces
+          : Array.isArray(pkg.workspaces?.packages)
+            ? pkg.workspaces.packages
+            : [];
+        if (workspaces.length > 0) return dir;
+      } catch {
+        // Ignore a malformed package.json and keep walking.
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return path.resolve(start, '../../..');
+}
+
+const repoRoot = findRepoRoot(__dirname);
 
 /**
  * Checks if core tables exist and executes migrations if not yet initialized.
